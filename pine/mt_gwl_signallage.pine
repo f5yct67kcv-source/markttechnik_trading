@@ -23,6 +23,8 @@ grpS = "Signale / Anzeige"
 i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", minval = 0, step = 0.1, group = grpS)
 i_showSigL = input.bool(true, "Einstiegssignale im Chart (ENT-073)", group = grpS)
 i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
+i_tabPos   = input.string("Oben links", "Position Info-Tabelle", options = ["Oben links", "Links Mitte", "Unten links", "Oben rechts", "Unten rechts"], group = grpS)
+TAB_POS = i_tabPos == "Oben links" ? position.top_left : i_tabPos == "Links Mitte" ? position.middle_left : i_tabPos == "Unten links" ? position.bottom_left : i_tabPos == "Oben rechts" ? position.top_right : position.bottom_right
 
 // ───────────────────────────── Konstanten
 TICK = syminfo.mintick
@@ -506,7 +508,7 @@ if barstate.islast
         tmpB.push(label.new(sigT.p3B, sigT.p3P, "s3", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
         tmpL.push(line.new(sigT.p3B, sigT.p3P, bar_index + 10, sigT.p3P, color = stColor(sigT.st), style = line.style_dotted))
 
-var table tab = table.new(position.top_right, 4, 3, bgcolor = color.new(color.black, 20), border_width = 1)
+var table tab = table.new(TAB_POS, 4, 3, bgcolor = color.new(color.black, 20), border_width = 1)
 if barstate.islast and i_showTab
     table.cell(tab, 0, 0, "Grösse", text_color = color.white)
     table.cell(tab, 1, 0, "Trend", text_color = color.white)
