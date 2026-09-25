@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 from dataclasses import dataclass
 
 
@@ -21,7 +22,10 @@ def load_tradingview_csv(path: str) -> list[Bar]:
     with open(path, newline="", encoding="utf-8") as f:
         for i, row in enumerate(csv.DictReader(f)):
             r = {k.strip().lower(): v for k, v in row.items()}
-            bars.append(Bar(i, r["time"], float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])))
+            t = r["time"]
+            if t.isdigit():                                   # Unix-Zeit (TradingView-Export)
+                t = datetime.datetime.fromtimestamp(int(t), datetime.timezone.utc).strftime("%Y-%m-%d %H:%M")
+            bars.append(Bar(i, t, float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])))
     return bars
 
 

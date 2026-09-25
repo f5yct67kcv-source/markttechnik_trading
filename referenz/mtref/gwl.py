@@ -113,3 +113,53 @@ def gwl_compressed(bars: list[Bar], k: int, tick: float) -> list[Swing]:
             conf = next(b.idx for b in bars[d0:d0 + k] if b.high >= target)
         out.append(Swing(sw.kind, ext.idx, sw.price, conf))
     return out
+
+
+def session_groups(bars: list[Bar], start_hour_utc: int = 22) -> list[list[Bar]]:
+    """Fasst Kerzen zu Handelstagen zusammen (CME: Tag beginnt 17:00 CT = 22:00 UTC)."""
+    import datetime
+    groups: list[list[Bar]] = []
+    last = None
+    for b in bars:
+        d = datetime.datetime.strptime(b.time, "%Y-%m-%d %H:%M") - datetime.timedelta(hours=start_hour_utc)
+        if d.date() != last:
+            groups.append([])
+            last = d.date()
+        groups[-1].append(b)
+    return groups
+
+
+def depth_filter(swings: list[Swing], thr: float) -> list[Swing]:
+    """Entfernt Korrekturen, die weniger als thr des vorherigen Astes zurücklaufen
+    und danach in Astrichtung überboten werden (ENT-081/082)."""
+    s = list(swings)
+    changed = True
+    while changed:
+        changed = False
+        for i in range(1, len(s) - 2):
+            a, b, c, d = s[i - 1], s[i], s[i + 1], s[i + 2]
+            leg, dep = abs(b.price - a.price), abs(b.price - c.price)
+            cont = d.price > b.price if b.kind == "H" else d.price < b.price
+            if leg > 0 and dep / leg < thr and cont:
+                del s[i:i + 2]
+                changed = True
+                break
+    return s
+
+
+def gwl_higher_tf(bars: list[Bar], groups: list[list[Bar]], thr: float, tick: float) -> list[Swing]:
+    """Variante C: Kerzenregel auf den Kerzen der höheren Zeiteinheit (z. B. Handelstage),
+    Tiefenfilter, Rückprojektion auf die Chart-Kerzen."""
+    cb = [Bar(i, g[0].time, g[0].open, max(x.high for x in g), min(x.low for x in g), g[-1].close)
+          for i, g in enumerate(groups)]
+    out: list[Swing] = []
+    for sw in candle_swings(cb, tick):
+        g, conf_g = groups[sw.idx], groups[sw.confirm_idx]
+        if sw.kind == "H":
+            ext = max(g, key=lambda b: b.high)
+            conf = next(b.idx for b in conf_g if b.low <= cb[sw.idx].low - tick)
+        else:
+            ext = min(g, key=lambda b: b.low)
+            conf = next(b.idx for b in conf_g if b.high >= cb[sw.idx].high + tick)
+        out.append(Swing(sw.kind, ext.idx, sw.price, conf))
+    return depth_filter(out, thr)
