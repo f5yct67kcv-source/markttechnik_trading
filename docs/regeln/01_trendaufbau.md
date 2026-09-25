@@ -1,7 +1,7 @@
 # Regelauszug 01 – Der Trendaufbau aus Sicht der Markttechnik
 
 Quelle: `docs/literatur/Trendaufbau MT.pdf` (18 PDF-Seiten, Scan). Seitenangaben = PDF-Seite.
-Nur Kernaussagen, kein Volltext. Status: **Auszug. Regeln werden erst durch ENTs verbindlich.**
+Nur Kernaussagen, kein Volltext. Status: **B-01 bis B-08 verbindlich (ENT-045).** Präzisierungen: ENT-035 bis ENT-044.
 
 ## Regeln aus dem Buch
 
