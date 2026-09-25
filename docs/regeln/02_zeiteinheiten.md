@@ -1,7 +1,7 @@
 # Regelauszug 02 – Die Zeiteinheiten / Bewegung und Korrektur
 
 Quelle: `docs/literatur/Zeiteinheiten MT.pdf` (19 PDF-Seiten, Scan; S. 19 leer). Seitenangaben = PDF-Seite.
-Nur Kernaussagen, kein Volltext. Status: **Auszug. Regeln werden erst durch ENTs verbindlich.**
+Nur Kernaussagen, kein Volltext. Status: **Z-06 verbindlich (ENT-047)**, Präzisierung ENT-048, Anzeige ENT-049. Übrige Z-Regeln: Hintergrund, durch ENT-035 bis ENT-044 abgedeckt.
 
 ## Regeln aus dem Buch
 
