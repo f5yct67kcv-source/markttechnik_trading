@@ -51,6 +51,7 @@ def run_trend(bars: list[Bar], swings: list[Swing], tick: float) -> list[TrendSt
             _price_event(c, ev, bar, tick)
         for sw in by_confirm.get(bar.idx, []):
             _swing_event(c, sw, tick)
+            _late_check(c, bars, bar.idx, tick)
         out.append(TrendState(c.s.state, c.s.p1, c.s.p2, c.s.p3))
     return out
 
@@ -154,3 +155,23 @@ def _swing_event(c: _Ctx, sw: Swing, tick: float) -> None:
                 c.blue[-1] = sw
         else:
             c.blue.append(sw)
+
+
+def _late_check(c: _Ctx, bars: list[Bar], now: int, tick: float) -> None:
+    """Wendepunkte werden oft erst nachträglich bestätigt (ENT-083/088). Hat der Kurs
+    die Bedingung für einen Trendaufbau aus blau (ENT-042/043) schon vorher erfüllt,
+    wird der Wechsel jetzt nachgeholt – mit dem bisherigen Extrem als P2."""
+    if c.s.state != NONE or len(c.blue) < 3:
+        return
+    a, b, d = c.blue[-3], c.blue[-2], c.blue[-1]
+    seit = bars[d.idx + 1:now + 1]
+    if not seit:
+        return
+    if (a.kind, b.kind, d.kind) == ("L", "H", "L") and d.price >= a.price + tick:
+        hi = max(seit, key=lambda x: x.high)
+        if hi.high >= b.price + tick:
+            _go(c, UP, Point(a.price, a.idx), Point(hi.high, hi.idx), Point(d.price, d.idx))
+    elif (a.kind, b.kind, d.kind) == ("H", "L", "H") and d.price <= a.price - tick:
+        lo = min(seit, key=lambda x: x.low)
+        if lo.low <= b.price - tick:
+            _go(c, DOWN, Point(a.price, a.idx), Point(lo.low, lo.idx), Point(d.price, d.idx))

@@ -90,3 +90,14 @@ def test_gwl_v_korrektur_zaehlt():                              # ENT-077: Kurs 
     bars = bars_from_path([10, 40, 20, 60], steps=8, wick=0.05)
     g = gwl_depth(bars, candle_swings(bars, T), thr=0.2, tick=T)
     assert [(s.kind, round(s.price)) for s in g] == [("L", 10), ("H", 40), ("L", 20)]
+
+
+def test_verspaetete_bestaetigung_holt_farbwechsel_nach():       # Live-Fehler MNQ 25.09.
+    from mtref.swings import Swing
+    bars = bars_from_path([10, 40, 25, 60, 20, 42, 12, 30], steps=4)
+    sw = candle_swings(bars, T)
+    # Hoch A (42) wird erst NACH dem Bruch unter 20 bestätigt
+    late = [Swing(x.kind, x.idx, x.price, x.confirm_idx + (4 if round(x.price) == 42 else 0)) for x in sw]
+    late.sort(key=lambda x: x.confirm_idx)
+    s = run_trend(bars, late, T)[-1]
+    assert s.state == DOWN and round(s.p1.price) == 60 and round(s.p3.price) == 42

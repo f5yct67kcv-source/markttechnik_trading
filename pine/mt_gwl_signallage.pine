@@ -222,12 +222,40 @@ method swingEv(Trend t, Swing sw) =>
                 t.blue.shift()
     t
 
+// Nachträglich bestätigte Wendepunkte (ENT-083/088): hat der Kurs die Bedingung für
+// den Trendaufbau aus blau (ENT-042/043) schon vorher erfüllt, wird der Wechsel nachgeholt.
+method lateCheck(Trend t) =>
+    if t.st == 0 and t.blue.size() >= 3
+        Swing a = t.blue.get(t.blue.size() - 3)
+        Swing b = t.blue.get(t.blue.size() - 2)
+        Swing d = t.blue.get(t.blue.size() - 1)
+        int n = math.min(bar_index - d.bar, 4900)
+        if n > 0
+            if a.kind == -1 and b.kind == 1 and d.kind == -1 and d.price >= a.price + TICK
+                float hx = high
+                int   hb = bar_index
+                for k = 0 to n - 1
+                    if high[k] > hx
+                        hx := high[k], hb := bar_index - k
+                if hx >= b.price + TICK
+                    t.goTo(1, a.price, a.bar, hx, hb, d.price, d.bar)
+            else if a.kind == 1 and b.kind == -1 and d.kind == 1 and d.price <= a.price - TICK
+                float lx = low
+                int   lb = bar_index
+                for k = 0 to n - 1
+                    if low[k] < lx
+                        lx := low[k], lb := bar_index - k
+                if lx <= b.price - TICK
+                    t.goTo(-1, a.price, a.bar, lx, lb, d.price, d.bar)
+    t
+
 method runBar(Trend t, array<Swing> sws, bool highFirst) =>
     t.changed := false
     t.priceEv(highFirst, high, low, bar_index)
     t.priceEv(not highFirst, high, low, bar_index)
     for sw in sws
         t.swingEv(sw)
+        t.lateCheck()
     t
 
 // ───────────────────────────── Kausaler Tiefenfilter der GWL (ENT-084, gwl.causal_depth)
