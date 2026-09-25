@@ -101,3 +101,14 @@ def test_verspaetete_bestaetigung_holt_farbwechsel_nach():       # Live-Fehler M
     late.sort(key=lambda x: x.confirm_idx)
     s = run_trend(bars, late, T)[-1]
     assert s.state == DOWN and round(s.p1.price) == 60 and round(s.p3.price) == 42
+
+
+def test_D1_mit_verspaetetem_hoch_Y_wird_rot():                  # Live-Fehler MCL 10 Min, 25.09.
+    from mtref.swings import Swing
+    bars = bars_from_path([10, 40, 25, 60, 40, 52, 15, 25], steps=4)
+    sw = candle_swings(bars, T)
+    # Hoch Y (52) wird erst nach dem Bruch unter Tief X (40) bestätigt
+    late = [Swing(x.kind, x.idx, x.price, x.confirm_idx + (4 if round(x.price) == 52 else 0)) for x in sw]
+    late.sort(key=lambda x: x.confirm_idx)
+    s = run_trend(bars, late, T)[-1]
+    assert s.state == DOWN and round(s.p1.price) == 60 and round(s.p3.price) == 52

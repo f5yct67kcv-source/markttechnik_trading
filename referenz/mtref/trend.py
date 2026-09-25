@@ -71,10 +71,14 @@ def _go_blue(c: _Ctx, bar: Bar, ev: str) -> None:
     if old.state == UP:
         c.old_up_p2, c.old_down_p2 = old.p2.price, None
         c.blue = [Swing("H", old.p2.idx, old.p2.price, bar.idx)]
+        if old.p3.idx > old.p2.idx:                  # Tief X nach P2 bleibt Teil der Struktur (ENT-092)
+            c.blue.append(Swing("L", old.p3.idx, old.p3.price, bar.idx))
         c.ext_since_blue = Point(bar.low, bar.idx)
     else:
         c.old_down_p2, c.old_up_p2 = old.p2.price, None
         c.blue = [Swing("L", old.p2.idx, old.p2.price, bar.idx)]
+        if old.p3.idx > old.p2.idx:
+            c.blue.append(Swing("H", old.p3.idx, old.p3.price, bar.idx))
         c.ext_since_blue = Point(bar.high, bar.idx)
 
 

@@ -120,6 +120,8 @@ method goBlue(Trend t, float h, float l, int bar) =>
     int   oldSt = t.st
     float op2   = t.p2P
     int   ob2   = t.p2B
+    float op3   = t.p3P
+    int   ob3   = t.p3B
     t.st := 0
     t.p1P := na, t.p1B := na, t.p2P := na, t.p2B := na, t.p3P := na, t.p3B := na
     t.p3open := false, t.counter := na
@@ -127,10 +129,14 @@ method goBlue(Trend t, float h, float l, int bar) =>
     if oldSt == 1
         t.oldUp := op2, t.oldDn := na
         t.blue.push(Swing.new(1, ob2, op2))
+        if ob3 > ob2                                                   // Tief X nach P2 bleibt Teil der Struktur (ENT-092)
+            t.blue.push(Swing.new(-1, ob3, op3))
         t.extP := l, t.extB := bar
     else
         t.oldDn := op2, t.oldUp := na
         t.blue.push(Swing.new(-1, ob2, op2))
+        if ob3 > ob2
+            t.blue.push(Swing.new(1, ob3, op3))
         t.extP := h, t.extB := bar
     t.changed := true
     t
