@@ -1,0 +1,488 @@
+//@version=6
+// Markttechnik – GWL + Signallage (Prototyp Phase 1)
+// 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL", overlay = true,
+     max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
+
+// ───────────────────────────── Einstellungen
+grpT = "Trend"
+i_tf       = input.timeframe("", "GWL-Zeiteinheit (leer = automatisch, ENT-085)", group = grpT)
+i_thr      = input.float(38.2, "Tiefenfilter GWL in % (ENT-084)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
+i_showSig  = input.bool(true, "Signallage anzeigen (fein)", group = grpT)
+i_showGwl  = input.bool(true, "GWL anzeigen (dick)", group = grpT)
+i_maxSeg   = input.int(150, "Max. gezeichnete Äste je Grösse (ENT-032)", minval = 10, maxval = 200, group = grpT)
+grpD = "Tageslinien (ENT-068)"
+i_showDay  = input.bool(true, "Hochs/Tiefs der Vortage", group = grpD)
+i_days     = input.int(5, "Anzahl Tage", minval = 1, maxval = 20, group = grpD)
+i_showOpen = input.bool(true, "Eröffnung aktueller Tag", group = grpD)
+grpI = "Innenstäbe / Umkehrstäbe (nur ab 10-Min-Chart)"
+i_showIB   = input.bool(true, "Innenstab-Boxen (ENT-052/054)", group = grpI)
+i_ibFuzz   = input.int(0, "Unschärfe Innenstab in Ticks (ENT-062)", minval = 0, group = grpI)
+i_showUK   = input.bool(true, "Umkehrstäbe markieren (ENT-067/069)", group = grpI)
+grpS = "Signale / Anzeige"
+i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", minval = 0, step = 0.1, group = grpS)
+i_showSigL = input.bool(true, "Einstiegssignale im Chart (ENT-073)", group = grpS)
+i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
+
+// ───────────────────────────── Konstanten
+TICK = syminfo.mintick
+cUp  = color.rgb(26, 150, 65)     // grün  = Aufwärtstrend
+cDn  = color.rgb(215, 25, 28)     // rot   = Abwärtstrend
+cNo  = color.rgb(43, 108, 176)    // blau  = trendlos
+stColor(int st) => st == 1 ? cUp : st == -1 ? cDn : cNo
+stText(int st) => st == 1 ? "AUF (grün)" : st == -1 ? "AB (rot)" : "TRENDLOS (blau)"
+
+// Nächsthöhere Stufe der Leiter aus ENT-003 (ENT-085)
+autoTF() =>
+    s = timeframe.in_seconds()
+    s < 600 ? "10" : s < 3600 ? "60" : s < 86400 ? "D" : s < 604800 ? "W" : "M"
+GWL_TF = i_tf == "" ? autoTF() : i_tf
+IS_TF10 = timeframe.in_seconds() >= 600
+
+// ───────────────────────────── Typen
+type Swing
+    int   kind      // 1 = Hoch, -1 = Tief
+    int   bar
+    float price
+
+// Kerzenregel (ENT-065) – arbeitet auf Chart-Kerzen oder auf wachsenden Kerzen der höheren Zeiteinheit
+type Finder
+    int   dir  = 0
+    bool  init = false
+    float hiP
+    float hiLow
+    int   hiBar
+    int   hiGrp
+    float loP
+    float loHigh
+    int   loBar
+    int   loGrp
+
+// Trendzustand einer Grösse (ENT-035 … 044, 079)
+type Trend
+    int   st = 0
+    float p1P
+    int   p1B
+    float p2P
+    int   p2B
+    float p3P
+    int   p3B
+    bool  p3open  = false
+    bool  changed = false
+    Swing counter
+    array<Swing> blue
+    float oldUp
+    float oldDn
+    float extP
+    int   extB
+
+// ───────────────────────────── Kerzenregel
+method step(Finder f, float cH, float cL, int cHbar, int cLbar, int gid, bool highFirst) =>
+    array<Swing> res = array.new<Swing>()
+    if not f.init
+        f.init := true
+        f.hiP := cH, f.hiLow := cL, f.hiBar := cHbar, f.hiGrp := gid
+        f.loP := cL, f.loHigh := cH, f.loBar := cLbar, f.loGrp := gid
+    else
+        if f.hiGrp == gid
+            f.hiLow := cL
+        if f.loGrp == gid
+            f.loHigh := cH
+        for k = 0 to 1
+            bool isH = (k == 0) == highFirst
+            if isH
+                if f.dir != -1 and cH > f.hiP
+                    f.hiP := cH, f.hiLow := cL, f.hiBar := cHbar, f.hiGrp := gid
+                if f.dir != 1 and gid > f.loGrp and cH >= f.loHigh + TICK
+                    res.push(Swing.new(-1, f.loBar, f.loP))
+                    f.dir := 1
+                    f.hiP := cH, f.hiLow := cL, f.hiBar := cHbar, f.hiGrp := gid
+            else
+                if f.dir != 1 and cL < f.loP
+                    f.loP := cL, f.loHigh := cH, f.loBar := cLbar, f.loGrp := gid
+                if f.dir != -1 and gid > f.hiGrp and cL <= f.hiLow - TICK
+                    res.push(Swing.new(1, f.hiBar, f.hiP))
+                    f.dir := -1
+                    f.loP := cL, f.loHigh := cH, f.loBar := cLbar, f.loGrp := gid
+    res
+
+// ───────────────────────────── Trend-Zustandsmaschine
+method goTo(Trend t, int st, float a, int ab, float b, int bb, float c, int cb) =>
+    t.st := st
+    t.p1P := a, t.p1B := ab, t.p2P := b, t.p2B := bb, t.p3P := c, t.p3B := cb
+    t.p3open := false, t.counter := na
+    t.blue.clear()
+    t.oldUp := na, t.oldDn := na, t.extP := na, t.extB := na
+    t.changed := true
+    t
+
+method goBlue(Trend t, float h, float l, int bar) =>
+    int   oldSt = t.st
+    float op2   = t.p2P
+    int   ob2   = t.p2B
+    t.st := 0
+    t.p1P := na, t.p1B := na, t.p2P := na, t.p2B := na, t.p3P := na, t.p3B := na
+    t.p3open := false, t.counter := na
+    t.blue.clear()
+    if oldSt == 1
+        t.oldUp := op2, t.oldDn := na
+        t.blue.push(Swing.new(1, ob2, op2))
+        t.extP := l, t.extB := bar
+    else
+        t.oldDn := op2, t.oldUp := na
+        t.blue.push(Swing.new(-1, ob2, op2))
+        t.extP := h, t.extB := bar
+    t.changed := true
+    t
+
+method bluePriceEv(Trend t, bool isH, float h, float l, int bar) =>
+    if not na(t.extP)
+        if not na(t.oldUp) and not isH and l < t.extP
+            t.extP := l, t.extB := bar
+        if not na(t.oldDn) and isH and h > t.extP
+            t.extP := h, t.extB := bar
+    bool done = false
+    // ENT-079: wieder über den alten P2 -> grün (Abwärts spiegelbildlich)
+    if isH and not na(t.oldUp) and h >= t.oldUp + TICK
+        float p3  = t.extP
+        int   p3b = t.extB
+        for i = t.blue.size() - 1 to 0
+            if t.blue.size() == 0
+                break
+            Swing w = t.blue.get(i)
+            if w.kind == -1 and w.price > t.extP
+                p3 := w.price, p3b := w.bar
+                break
+        t.goTo(1, t.extP, t.extB, h, bar, p3, p3b)
+        done := true
+    else if not isH and not na(t.oldDn) and l <= t.oldDn - TICK
+        float p3  = t.extP
+        int   p3b = t.extB
+        for i = t.blue.size() - 1 to 0
+            if t.blue.size() == 0
+                break
+            Swing w = t.blue.get(i)
+            if w.kind == 1 and w.price < t.extP
+                p3 := w.price, p3b := w.bar
+                break
+        t.goTo(-1, t.extP, t.extB, l, bar, p3, p3b)
+        done := true
+    // ENT-042/043: Trendaufbau aus blau
+    if not done and t.blue.size() >= 3
+        Swing a = t.blue.get(t.blue.size() - 3)
+        Swing b = t.blue.get(t.blue.size() - 2)
+        Swing d = t.blue.get(t.blue.size() - 1)
+        if isH and a.kind == -1 and b.kind == 1 and d.kind == -1 and d.price >= a.price + TICK and h >= b.price + TICK
+            t.goTo(1, a.price, a.bar, h, bar, d.price, d.bar)
+        else if not isH and a.kind == 1 and b.kind == -1 and d.kind == 1 and d.price <= a.price - TICK and l <= b.price - TICK
+            t.goTo(-1, a.price, a.bar, l, bar, d.price, d.bar)
+    t
+
+method priceEv(Trend t, bool isH, float h, float l, int bar) =>
+    if t.st == 1
+        if isH and h >= t.p2P + TICK                                   // ENT-035
+            t.p2P := h, t.p2B := bar, t.p3open := true, t.counter := na
+        else if not isH and l <= t.p3P - TICK                          // ENT-037
+            if not na(t.counter)                                       // ENT-039/040 (D1)
+                t.goTo(-1, t.p2P, t.p2B, l, bar, t.counter.price, t.counter.bar)
+            else                                                       // Skizze C/D2
+                t.goBlue(h, l, bar)
+    else if t.st == -1
+        if not isH and l <= t.p2P - TICK
+            t.p2P := l, t.p2B := bar, t.p3open := true, t.counter := na
+        else if isH and h >= t.p3P + TICK
+            if not na(t.counter)
+                t.goTo(1, t.p2P, t.p2B, h, bar, t.counter.price, t.counter.bar)
+            else
+                t.goBlue(h, l, bar)
+    else
+        t.bluePriceEv(isH, h, l, bar)
+    t
+
+method swingEv(Trend t, Swing sw) =>
+    if t.st == 1
+        if sw.kind == -1 and t.p3open and sw.bar > t.p2B              // ENT-038
+            t.p3P := sw.price, t.p3B := sw.bar, t.p3open := false, t.counter := na
+        else if sw.kind == 1 and sw.bar > t.p3B and sw.price <= t.p2P - TICK
+            t.counter := sw                                            // tieferes Hoch
+    else if t.st == -1
+        if sw.kind == 1 and t.p3open and sw.bar > t.p2B
+            t.p3P := sw.price, t.p3B := sw.bar, t.p3open := false, t.counter := na
+        else if sw.kind == -1 and sw.bar > t.p3B and sw.price >= t.p2P + TICK
+            t.counter := sw
+    else
+        int n = t.blue.size()
+        if n > 0 and t.blue.get(n - 1).kind == sw.kind
+            Swing last = t.blue.get(n - 1)
+            if (sw.kind == 1 and sw.price > last.price) or (sw.kind == -1 and sw.price < last.price)
+                t.blue.set(n - 1, sw)
+        else
+            t.blue.push(sw)
+            if t.blue.size() > 50
+                t.blue.shift()
+    t
+
+method runBar(Trend t, array<Swing> sws, bool highFirst) =>
+    t.changed := false
+    t.priceEv(highFirst, high, low, bar_index)
+    t.priceEv(not highFirst, high, low, bar_index)
+    for sw in sws
+        t.swingEv(sw)
+    t
+
+// ───────────────────────────── Kausaler Tiefenfilter der GWL (ENT-084, gwl.causal_depth)
+// s.get(0) ist immer der letzte endgültige Punkt, danach die offenen Kandidaten.
+method gwlFeed(array<Swing> s, Swing d, float thr) =>
+    array<Swing> fin = array.new<Swing>()
+    s.push(d)
+    if s.size() == 1
+        fin.push(d)
+    else
+        bool changed = true
+        while changed
+            changed := false
+            if s.size() >= 4
+                for i = 1 to s.size() - 3
+                    Swing a = s.get(i - 1)
+                    Swing b = s.get(i)
+                    Swing c = s.get(i + 1)
+                    Swing e = s.get(i + 2)
+                    float leg = math.abs(b.price - a.price)
+                    float dep = math.abs(b.price - c.price)
+                    bool cont = b.kind == 1 ? e.price > b.price : e.price < b.price
+                    if leg > 0 and dep / leg < thr and cont
+                        s.remove(i + 1)
+                        s.remove(i)
+                        changed := true
+                        break
+        bool go = true
+        while go and s.size() >= 3
+            go := false
+            Swing p0 = s.get(0)
+            Swing p1 = s.get(1)
+            float leg = math.abs(p1.price - p0.price)
+            float dep = 0.0
+            for j = 2 to s.size() - 1
+                Swing x = s.get(j)
+                if x.kind != p1.kind
+                    dep := math.max(dep, math.abs(p1.price - x.price))
+            if leg > 0 and dep / leg >= thr
+                fin.push(p1)
+                s.shift()
+                go := true
+    fin
+
+// ───────────────────────────── Zeichenhilfen
+drawSeg(array<line> arr, int x1, float y1, int x2, float y2, color c, int w, string st, int cap) =>
+    arr.push(line.new(x1, y1, x2, y2, color = c, width = w, style = st))
+    if arr.size() > cap
+        line.delete(arr.shift())
+
+// ───────────────────────────── Zustand
+var Finder sigF = Finder.new()
+var Finder gwlF = Finder.new()
+var Trend  sigT = Trend.new(blue = array.new<Swing>())
+var Trend  gwlT = Trend.new(blue = array.new<Swing>())
+var array<Swing> cand = array.new<Swing>()
+var array<line>  sigLines = array.new<line>()
+var array<line>  gwlLines = array.new<line>()
+var Swing lastSig = na
+var Swing lastGwl = na
+
+// Kerzen der GWL-Zeiteinheit (wachsend, ENT-085)
+var int   gid   = 0
+var float gH    = na
+var float gL    = na
+var int   gHbar = na
+var int   gLbar = na
+bool grpChg = timeframe.change(GWL_TF)
+if grpChg or na(gH)
+    gid += 1
+    gH := high, gL := low, gHbar := bar_index, gLbar := bar_index
+else
+    if high > gH
+        gH := high, gHbar := bar_index
+    if low < gL
+        gL := low, gLbar := bar_index
+
+bool hf = (high - open) <= (open - low)          // Reihenfolge in der Kerze (ENT-024)
+
+// ───────────────────────────── Berechnung
+array<Swing> sigNew = sigF.step(high, low, bar_index, bar_index, bar_index, hf)
+array<Swing> gwlRaw = gwlF.step(gH, gL, gHbar, gLbar, gid, hf)
+array<Swing> gwlNew = array.new<Swing>()
+for r in gwlRaw
+    array<Swing> f = cand.gwlFeed(r, i_thr)
+    for x in f
+        gwlNew.push(x)
+
+sigT.runBar(sigNew, hf)
+gwlT.runBar(gwlNew, hf)
+
+// Phase Bewegung/Korrektur (ENT-049, Buch Z-06/Z-11)
+bool gwlKorr = gwlT.st != 0 and sigT.st != gwlT.st
+bool sigKorr = sigT.st != 0 and sigT.p3open and sigT.p2B < bar_index
+
+// ───────────────────────────── Zickzack zeichnen (ENT-080: gerade Linien Extrem zu Extrem)
+for sw in sigNew
+    if i_showSig and not na(lastSig)
+        drawSeg(sigLines, lastSig.bar, lastSig.price, sw.bar, sw.price, stColor(sigT.st), 1, line.style_dashed, i_maxSeg)
+    lastSig := sw
+for sw in gwlNew
+    if i_showGwl and not na(lastGwl)
+        drawSeg(gwlLines, lastGwl.bar, lastGwl.price, sw.bar, sw.price, stColor(gwlT.st), 4, line.style_solid, i_maxSeg)
+    lastGwl := sw
+
+// ───────────────────────────── Tageslinien (ENT-015/068)
+type Level
+    float price
+    bool  isHigh
+    line  ln
+    label lb
+    bool  active = true
+
+var array<Level> levels = array.new<Level>()
+var float dH = na
+var float dL = na
+var int   dHbar = na
+var int   dLbar = na
+var int   dTime = na
+var line  openLn = na
+bool dayChg = timeframe.change("D")
+bool newDay = timeframe.isintraday and dayChg
+if newDay
+    if not na(dH) and i_showDay
+        string ds = str.format_time(dTime, "dd.MM.yy", syminfo.timezone)
+        levels.push(Level.new(dH, true,  line.new(dHbar, dH, bar_index, dH, color = color.new(cDn, 30), style = line.style_dotted),
+             label.new(dHbar, dH, ds + "  " + str.tostring(dH, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
+        levels.push(Level.new(dL, false, line.new(dLbar, dL, bar_index, dL, color = color.new(cDn, 30), style = line.style_dotted),
+             label.new(dLbar, dL, ds + "  " + str.tostring(dL, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
+        while levels.size() > 2 * i_days
+            Level o = levels.shift()
+            line.delete(o.ln)
+            label.delete(o.lb)
+    dH := high, dL := low, dHbar := bar_index, dLbar := bar_index, dTime := time
+    if not na(openLn)
+        line.delete(openLn)
+    if i_showOpen
+        openLn := line.new(bar_index, open, bar_index, open, color = color.gray, style = line.style_dashed)
+else if timeframe.isintraday and not na(dH)
+    if high > dH
+        dH := high, dHbar := bar_index
+    if low < dL
+        dL := low, dLbar := bar_index
+
+string dayBreak = ""
+for lv in levels
+    if lv.active
+        if (lv.isHigh and high > lv.price) or (not lv.isHigh and low < lv.price)
+            lv.active := false
+            line.set_x2(lv.ln, bar_index)
+            // ENT-075: Durchbruch nur in GWL-Richtung ist ein Signal
+            if lv.isHigh and gwlT.st == 1
+                dayBreak := "Long: Tageshoch " + str.tostring(lv.price, format.mintick) + " durchbrochen"
+            else if not lv.isHigh and gwlT.st == -1
+                dayBreak := "Short: Tagestief " + str.tostring(lv.price, format.mintick) + " durchbrochen"
+        else
+            line.set_x2(lv.ln, bar_index)
+if not na(openLn)
+    line.set_x2(openLn, bar_index)
+
+// ───────────────────────────── Innenstäbe (ENT-052/054/062)
+var float oH  = na
+var float oL  = na
+var int   oBar = na
+var box   ib  = na
+if IS_TF10 and i_showIB
+    float fz = i_ibFuzz * TICK
+    bool inside = not na(oH) and bar_index > oBar and close <= oH + fz and close >= oL - fz
+    if inside
+        if na(ib)
+            ib := box.new(oBar, oH, bar_index, oL, border_color = color.new(color.orange, 40), bgcolor = color.new(color.orange, 88))
+        else
+            box.set_right(ib, bar_index)
+    else
+        oH := high, oL := low, oBar := bar_index
+        ib := na
+
+// ───────────────────────────── Umkehrstäbe, nur Markierung (ENT-067/069)
+bool ukLong  = IS_TF10 and i_showUK and gwlT.st == 1  and gwlKorr and low  < low[1]  and close > open
+bool ukShort = IS_TF10 and i_showUK and gwlT.st == -1 and gwlKorr and high > high[1] and close < open
+plotshape(ukLong,  "Long-Umkehrstab",  shape.triangleup,   location.belowbar, color.new(cUp, 0), size = size.tiny)
+plotshape(ukShort, "Short-Umkehrstab", shape.triangledown, location.abovebar, color.new(cDn, 0), size = size.tiny)
+
+// ───────────────────────────── Einstiegssignal 1-2-3 (ENT-072/073)
+float atr20 = ta.atr(20)
+bool entry = sigT.changed and sigT.st != 0 and sigT.st == gwlT.st
+bool premium = entry and not na(gwlT.p2P) and math.abs(gwlT.p2P - sigT.p2P) <= i_premAtr * atr20
+if entry and i_showSigL
+    label.new(bar_index, sigT.st == 1 ? low : high, (sigT.st == 1 ? "L" : "S") + (premium ? " ★" : ""),
+         style = sigT.st == 1 ? label.style_label_up : label.style_label_down,
+         color = stColor(sigT.st), textcolor = color.white, size = size.small)
+
+// ───────────────────────────── Alerts (Stufe 1, ENT-020)
+if gwlT.changed
+    alert(syminfo.ticker + " GWL (" + GWL_TF + "): " + stText(gwlT.st), alert.freq_once_per_bar)
+if entry
+    alert(syminfo.ticker + (premium ? " PREMIUM " : " ") + "1-2-3 " + (sigT.st == 1 ? "LONG" : "SHORT") +
+         " | Signal-P2 " + str.tostring(sigT.p2P, format.mintick) + " | Stopp P3 " + str.tostring(sigT.p3P, format.mintick), alert.freq_once_per_bar)
+if dayBreak != ""
+    alert(syminfo.ticker + " " + dayBreak, alert.freq_once_per_bar)
+
+// ───────────────────────────── Letzte Kerze: laufender Ast, Punkte, Bruchlinien, Tabelle
+var array<line>  tmpL = array.new<line>()
+var array<label> tmpB = array.new<label>()
+if barstate.islast
+    for x in tmpL
+        line.delete(x)
+    for x in tmpB
+        label.delete(x)
+    tmpL.clear()
+    tmpB.clear()
+    // laufender, noch nicht bestätigter GWL-Ast (ENT-083), blass
+    if i_showGwl and cand.size() > 0
+        array<Swing> pts = cand.copy()
+        Swing lp = pts.get(pts.size() - 1)
+        if gwlF.dir == 1 and gwlF.hiBar > lp.bar
+            pts.push(Swing.new(1, gwlF.hiBar, gwlF.hiP))
+        else if gwlF.dir == -1 and gwlF.loBar > lp.bar
+            pts.push(Swing.new(-1, gwlF.loBar, gwlF.loP))
+        for i = 1 to pts.size() - 1
+            if pts.size() > 1
+                Swing a = pts.get(i - 1)
+                Swing b = pts.get(i)
+                tmpL.push(line.new(a.bar, a.price, b.bar, b.price, color = color.new(stColor(gwlT.st), 60), width = 4))
+    // Punkte 1-2-3 der GWL (gross) und der Signallage (klein)
+    if gwlT.st != 0 and i_showGwl
+        bool up = gwlT.st == 1
+        tmpB.push(label.new(gwlT.p1B, gwlT.p1P, "1", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpB.push(label.new(gwlT.p2B, gwlT.p2P, "2", style = up ? label.style_label_down : label.style_label_up, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpB.push(label.new(gwlT.p3B, gwlT.p3P, "3", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpL.push(line.new(gwlT.p3B, gwlT.p3P, bar_index + 15, gwlT.p3P, color = stColor(gwlT.st), width = 2))
+        // vorläufiger P3 in Klammern
+        for i = cand.size() - 1 to 1
+            if cand.size() > 1
+                Swing c = cand.get(i)
+                if c.kind == (up ? -1 : 1) and c.bar > gwlT.p2B
+                    tmpB.push(label.new(c.bar, c.price, "(3)", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 50), textcolor = color.white))
+                    break
+    if sigT.st != 0 and i_showSig
+        bool up2 = sigT.st == 1
+        tmpB.push(label.new(sigT.p2B, sigT.p2P, "s2", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
+        tmpB.push(label.new(sigT.p3B, sigT.p3P, "s3", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
+        tmpL.push(line.new(sigT.p3B, sigT.p3P, bar_index + 10, sigT.p3P, color = stColor(sigT.st), style = line.style_dotted))
+
+var table tab = table.new(position.top_right, 4, 3, bgcolor = color.new(color.black, 20), border_width = 1)
+if barstate.islast and i_showTab
+    table.cell(tab, 0, 0, "Grösse", text_color = color.white)
+    table.cell(tab, 1, 0, "Trend", text_color = color.white)
+    table.cell(tab, 2, 0, "Phase", text_color = color.white)
+    table.cell(tab, 3, 0, "Bruchlinie", text_color = color.white)
+    table.cell(tab, 0, 1, "GWL (" + GWL_TF + ")", text_color = color.white)
+    table.cell(tab, 1, 1, stText(gwlT.st), bgcolor = stColor(gwlT.st), text_color = color.white)
+    table.cell(tab, 2, 1, gwlT.st == 0 ? "–" : gwlKorr ? "Korrektur" : "Bewegung", text_color = color.white)
+    table.cell(tab, 3, 1, na(gwlT.p3P) ? "–" : str.tostring(gwlT.p3P, format.mintick), text_color = color.white)
+    table.cell(tab, 0, 2, "Signal (" + timeframe.period + ")", text_color = color.white)
+    table.cell(tab, 1, 2, stText(sigT.st), bgcolor = stColor(sigT.st), text_color = color.white)
+    table.cell(tab, 2, 2, sigT.st == 0 ? "–" : sigKorr ? "Korrektur" : "Bewegung", text_color = color.white)
+    table.cell(tab, 3, 2, na(sigT.p3P) ? "–" : str.tostring(sigT.p3P, format.mintick), text_color = color.white)

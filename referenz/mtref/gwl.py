@@ -163,3 +163,55 @@ def gwl_higher_tf(bars: list[Bar], groups: list[list[Bar]], thr: float, tick: fl
             conf = next(b.idx for b in conf_g if b.high >= cb[sw.idx].high + tick)
         out.append(Swing(sw.kind, ext.idx, sw.price, conf))
     return depth_filter(out, thr)
+
+
+def htf_swings(bars: list[Bar], groups: list[list[Bar]], tick: float) -> list[Swing]:
+    """Kerzenregel auf höheren Kerzen, zurückprojiziert (Extrem-Kerze, Bestätigungs-Kerze)."""
+    cb = [Bar(i, g[0].time, g[0].open, max(x.high for x in g), min(x.low for x in g), g[-1].close)
+          for i, g in enumerate(groups)]
+    out: list[Swing] = []
+    for sw in candle_swings(cb, tick):
+        g, conf_g = groups[sw.idx], groups[sw.confirm_idx]
+        if sw.kind == "H":
+            ext = max(g, key=lambda b: b.high)
+            conf = next(b.idx for b in conf_g if b.low <= cb[sw.idx].low - tick)
+        else:
+            ext = min(g, key=lambda b: b.low)
+            conf = next(b.idx for b in conf_g if b.high >= cb[sw.idx].high + tick)
+        out.append(Swing(sw.kind, ext.idx, sw.price, conf))
+    return out
+
+
+def causal_depth(raw: list[Swing], thr: float) -> list[Swing]:
+    """Tiefenfilter ohne Vorschau (für Pine, ENT-031).
+
+    Kandidatenliste wie depth_filter; ein Punkt i wird endgültig, wenn die
+    grösste Gegenbewegung danach mindestens thr des Astes davor beträgt und Punkt i-1
+    bereits endgültig ist. confirm_idx = Kerze, in der das feststeht.
+    """
+    s: list[Swing] = []
+    final: list[Swing] = []
+    for d in raw:
+        s.append(d)
+        changed = True                                         # Bereinigung im nicht-endgültigen Teil
+        while changed:
+            changed = False
+            for i in range(max(1, len(final)), len(s) - 2):
+                a, b, c, e = s[i - 1], s[i], s[i + 1], s[i + 2]
+                leg, dep = abs(b.price - a.price), abs(b.price - c.price)
+                cont = e.price > b.price if b.kind == "H" else e.price < b.price
+                if leg > 0 and dep / leg < thr and cont:
+                    del s[i:i + 2]
+                    changed = True
+                    break
+        if not final:
+            final.append(s[0])
+        while len(final) + 1 < len(s):
+            i = len(final)
+            leg = abs(s[i].price - s[i - 1].price)
+            dep = max(abs(s[i].price - x.price) for x in s[i + 1:] if x.kind != s[i].kind)
+            if leg > 0 and dep / leg >= thr:
+                final.append(Swing(s[i].kind, s[i].idx, s[i].price, d.confirm_idx))
+            else:
+                break
+    return final
