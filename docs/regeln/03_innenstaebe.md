@@ -1,7 +1,7 @@
 # Regelauszug 03 – Die Innenstäbe
 
 Quelle: `docs/literatur/Innenstäbe MT.pdf` (13 PDF-Seiten, Scan; S. 13 leer). Seitenangaben = PDF-Seite.
-Nur Kernaussagen, kein Volltext. Status: **Auszug. Regeln werden erst durch ENTs verbindlich.**
+Nur Kernaussagen, kein Volltext. Status: I-01 bis I-06 verbindlich (ENT-052). Wirkung auf Trendlogik: keine (ENT-051).
 
 ## Regeln aus dem Buch
 
