@@ -2,7 +2,7 @@
 
 Quelle: `docs/literatur/Stopps MT.pdf` (33 PDF-Seiten, Scan). Seitenangaben = PDF-Seite.
 **Achtung:** S. 21 und S. 22 sind identisch (Doppelscan). Vermutlich fehlt die Seite mit Bild 15a–e (klassischer Trailingstopp Schritt für Schritt). S. 33 ist leer.
-Nur Kernaussagen, kein Volltext. Status: **Auszug. Regeln werden erst durch ENTs verbindlich.**
+Nur Kernaussagen, kein Volltext. Status: **S-01 bis S-19 verbindlich (ENT-064)**, präzisiert durch ENT-056 bis ENT-063.
 
 ## Grundsätze
 
