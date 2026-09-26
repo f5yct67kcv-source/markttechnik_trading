@@ -1,7 +1,7 @@
 # Regelauszug 06 – Punktzählung und Trendhandel
 
 Quelle: `docs/literatur/Punktezählung MT.pdf` (18 PDF-Seiten = Buchseiten 125–141; S. 18 leer).
-Nur Kernaussagen, kein Volltext. Status: **Auszug. Regeln werden erst durch ENTs verbindlich.**
+Nur Kernaussagen, kein Volltext. Status: **P-01 bis P-07 umgesetzt**, P-04/P-05 verbindlich durch ENT-095/096.
 
 | Nr. | Regel | Fundstelle |
 |-----|-------|------------|

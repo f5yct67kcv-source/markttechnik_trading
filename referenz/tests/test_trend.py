@@ -31,12 +31,21 @@ def test_skizze_D1_bruch_nach_tieferem_hoch_ist_rot():          # ENT-039/040 (D
     assert round(s.p1.price, 1) == 60.2 and round(s.p3.price, 1) == 52.2
 
 
-def test_skizze_A_bruchlinie_ist_tief_X_nicht_tief_Z():         # ENT-038
+def test_skizze_A_bruchlinie_bleibt_alter_p3():                   # ENT-095 (Buch S. 128/139), löst ENT-038 ab
     states = run([10, 40, 25, 60, 40, 52, 45, 50, 38])
-    # vor dem Bruch lag die Bruchlinie auf Tief X (39.8), nicht auf Tief Z (44.8)
-    up = [s for s in states if s.state == UP][-1]
-    assert round(up.p3.price, 1) == 39.8
-    assert states[-1].state == DOWN
+    s = states[-1]
+    # unter Tief X (39.8), aber über altem P3 (24.8): Trend intakt
+    assert s.state == UP and round(s.p3.price, 1) == 24.8
+
+
+def test_skizze_A_tief_x_wird_p3_erst_ueber_p2():                 # ENT-095
+    s = run([10, 40, 25, 60, 40, 52, 45, 70])[-1]
+    assert s.state == UP and round(s.p3.price, 1) == 39.8 and round(s.p2.price, 1) == 70.2
+
+
+def test_skizze_A_bruch_alter_p3_nach_tieferem_hoch_ist_rot():   # ENT-039/040 mit ENT-095
+    s = run([10, 40, 25, 60, 40, 52, 45, 50, 20])[-1]
+    assert s.state == DOWN and round(s.p1.price, 1) == 60.2 and round(s.p3.price, 1) == 50.2
 
 
 def test_gleiches_tief_bricht_nicht():                          # ENT-037, Buch B-05

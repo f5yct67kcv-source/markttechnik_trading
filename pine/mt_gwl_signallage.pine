@@ -71,6 +71,7 @@ type Trend
     int   p3B
     bool  p3open  = false
     bool  changed = false
+    Swing corr                                                         // Korrekturextrem nach P2, wird P3 erst beim Bruch über P2 (ENT-095)
     Swing counter
     array<Swing> blue
     float oldUp
@@ -112,7 +113,7 @@ method step(Finder f, float cH, float cL, int cHbar, int cLbar, int gid, bool hi
 method goTo(Trend t, int st, float a, int ab, float b, int bb, float c, int cb) =>
     t.st := st
     t.p1P := a, t.p1B := ab, t.p2P := b, t.p2B := bb, t.p3P := c, t.p3B := cb
-    t.p3open := false, t.counter := na
+    t.p3open := false, t.counter := na, t.corr := na
     t.blue.clear()
     t.oldUp := na, t.oldDn := na, t.extP := na, t.extB := na
     t.changed := true
@@ -122,23 +123,22 @@ method goBlue(Trend t, float h, float l, int bar) =>
     int   oldSt = t.st
     float op2   = t.p2P
     int   ob2   = t.p2B
-    float op3   = t.p3P
-    int   ob3   = t.p3B
+    Swing cx    = t.corr
     t.st := 0
     t.p1P := na, t.p1B := na, t.p2P := na, t.p2B := na, t.p3P := na, t.p3B := na
-    t.p3open := false, t.counter := na
+    t.p3open := false, t.counter := na, t.corr := na
     t.blue.clear()
     if oldSt == 1
         t.oldUp := op2, t.oldDn := na
         t.blue.push(Swing.new(1, ob2, op2))
-        if ob3 > ob2                                                   // Tief X nach P2 bleibt Teil der Struktur (ENT-092)
-            t.blue.push(Swing.new(-1, ob3, op3))
+        if not na(cx)                                                  // Tief X nach P2 bleibt Teil der Struktur (ENT-092)
+            t.blue.push(cx)
         t.extP := l, t.extB := bar
     else
         t.oldDn := op2, t.oldUp := na
         t.blue.push(Swing.new(-1, ob2, op2))
-        if ob3 > ob2
-            t.blue.push(Swing.new(1, ob3, op3))
+        if not na(cx)
+            t.blue.push(cx)
         t.extP := h, t.extB := bar
     t.changed := true
     t
@@ -189,7 +189,9 @@ method bluePriceEv(Trend t, bool isH, float h, float l, int bar) =>
 method priceEv(Trend t, bool isH, float h, float l, int bar) =>
     if t.st == 1
         if isH and h >= t.p2P + TICK                                   // ENT-035
-            t.p2P := h, t.p2B := bar, t.p3open := true, t.counter := na
+            if not na(t.corr)                                          // ENT-095: P3 erst beim Bruch über P2
+                t.p3P := t.corr.price, t.p3B := t.corr.bar
+            t.p2P := h, t.p2B := bar, t.p3open := true, t.counter := na, t.corr := na
         else if not isH and l <= t.p3P - TICK                          // ENT-037
             if not na(t.counter)                                       // ENT-039/040 (D1)
                 t.goTo(-1, t.p2P, t.p2B, l, bar, t.counter.price, t.counter.bar)
@@ -197,7 +199,9 @@ method priceEv(Trend t, bool isH, float h, float l, int bar) =>
                 t.goBlue(h, l, bar)
     else if t.st == -1
         if not isH and l <= t.p2P - TICK
-            t.p2P := l, t.p2B := bar, t.p3open := true, t.counter := na
+            if not na(t.corr)
+                t.p3P := t.corr.price, t.p3B := t.corr.bar
+            t.p2P := l, t.p2B := bar, t.p3open := true, t.counter := na, t.corr := na
         else if isH and h >= t.p3P + TICK
             if not na(t.counter)
                 t.goTo(1, t.p2P, t.p2B, h, bar, t.counter.price, t.counter.bar)
@@ -209,14 +213,20 @@ method priceEv(Trend t, bool isH, float h, float l, int bar) =>
 
 method swingEv(Trend t, Swing sw) =>
     if t.st == 1
-        if sw.kind == -1 and t.p3open and sw.bar > t.p2B              // ENT-038
-            t.p3P := sw.price, t.p3B := sw.bar, t.p3open := false, t.counter := na
-        else if sw.kind == 1 and sw.bar > t.p3B and sw.price <= t.p2P - TICK
-            t.counter := sw                                            // tieferes Hoch
+        if sw.kind == -1 and sw.bar > t.p2B                             // Tief X nach P2 (ENT-095)
+            if na(t.corr) or sw.price < t.corr.price
+                t.corr := sw
+        else if sw.kind == -1 and sw.bar > t.p3B and sw.bar < t.p2B and sw.price > t.p3P
+            t.p3P := sw.price, t.p3B := sw.bar                         // nachträglich bestätigtes Korrekturtief vor P2
+        else if sw.kind == 1 and sw.bar > t.p2B and sw.price <= t.p2P - TICK
+            t.counter := sw                                            // tieferes Hoch (Hoch Y)
     else if t.st == -1
-        if sw.kind == 1 and t.p3open and sw.bar > t.p2B
-            t.p3P := sw.price, t.p3B := sw.bar, t.p3open := false, t.counter := na
-        else if sw.kind == -1 and sw.bar > t.p3B and sw.price >= t.p2P + TICK
+        if sw.kind == 1 and sw.bar > t.p2B
+            if na(t.corr) or sw.price > t.corr.price
+                t.corr := sw
+        else if sw.kind == 1 and sw.bar > t.p3B and sw.bar < t.p2B and sw.price < t.p3P
+            t.p3P := sw.price, t.p3B := sw.bar
+        else if sw.kind == -1 and sw.bar > t.p2B and sw.price >= t.p2P + TICK
             t.counter := sw
     else
         int n = t.blue.size()
@@ -495,13 +505,9 @@ if barstate.islast
         tmpB.push(label.new(gwlT.p2B, gwlT.p2P, "2", style = up ? label.style_label_down : label.style_label_up, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
         tmpB.push(label.new(gwlT.p3B, gwlT.p3P, "3", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
         tmpL.push(line.new(gwlT.p3B, gwlT.p3P, bar_index + 15, gwlT.p3P, color = stColor(gwlT.st), width = 2))
-        // vorläufiger P3 in Klammern
-        for i = cand.size() - 1 to 1
-            if cand.size() > 1
-                Swing c = cand.get(i)
-                if c.kind == (up ? -1 : 1) and c.bar > gwlT.p2B
-                    tmpB.push(label.new(c.bar, c.price, "(3)", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 50), textcolor = color.white))
-                    break
+        // vorläufiger P3 in Klammern: Tief X, wird erst beim Bruch über P2 zum P3 (ENT-095)
+        if not na(gwlT.corr)
+            tmpB.push(label.new(gwlT.corr.bar, gwlT.corr.price, "(3)", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 50), textcolor = color.white))
     if sigT.st != 0 and i_showSig
         bool up2 = sigT.st == 1
         tmpB.push(label.new(sigT.p2B, sigT.p2P, "s2", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
