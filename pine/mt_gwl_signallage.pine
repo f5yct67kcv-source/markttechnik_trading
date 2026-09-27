@@ -23,6 +23,9 @@ grpS = "Signale / Anzeige"
 i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", minval = 0, step = 0.1, group = grpS)
 i_showSigL = input.bool(true, "Einstiegssignale im Chart (ENT-073)", group = grpS)
 i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
+grpX = "Fehlersuche (ENT-100)"
+i_dbgGwl   = input.bool(true,  "Grund bei GWL-Farbwechsel anzeigen", group = grpX)
+i_dbgSig   = input.bool(false, "Grund bei Signallage-Farbwechsel anzeigen", group = grpX)
 i_tabPos   = input.string("Oben links", "Position Info-Tabelle", options = ["Oben links", "Links Mitte", "Unten links", "Oben rechts", "Unten rechts"], group = grpS)
 TAB_POS = i_tabPos == "Oben links" ? position.top_left : i_tabPos == "Links Mitte" ? position.middle_left : i_tabPos == "Unten links" ? position.bottom_left : i_tabPos == "Oben rechts" ? position.top_right : position.bottom_right
 
@@ -71,6 +74,9 @@ type Trend
     int   p3B
     bool  p3open  = false
     bool  changed = false
+    bool  korr    = false                                              // Phase: Korrektur (ENT-097)
+    int   corrFrom                                                     // Bar des vorherigen P2 = Beginn der letzten Korrektur (ENT-099)
+    string why    = ""                                                 // Grund des letzten Wechsels (ENT-100)
     Swing corr                                                         // Korrekturextrem nach P2, wird P3 erst beim Bruch über P2 (ENT-095)
     Swing counter
     array<Swing> blue
@@ -110,16 +116,17 @@ method step(Finder f, float cH, float cL, int cHbar, int cLbar, int gid, bool hi
     res
 
 // ───────────────────────────── Trend-Zustandsmaschine
-method goTo(Trend t, int st, float a, int ab, float b, int bb, float c, int cb) =>
+method goTo(Trend t, int st, float a, int ab, float b, int bb, float c, int cb, string why) =>
     t.st := st
     t.p1P := a, t.p1B := ab, t.p2P := b, t.p2B := bb, t.p3P := c, t.p3B := cb
     t.p3open := false, t.counter := na, t.corr := na
+    t.korr := false, t.corrFrom := na, t.why := why
     t.blue.clear()
     t.oldUp := na, t.oldDn := na, t.extP := na, t.extB := na
     t.changed := true
     t
 
-method goBlue(Trend t, float h, float l, int bar) =>
+method goBlue(Trend t, float h, float l, int bar, string why) =>
     int   oldSt = t.st
     float op2   = t.p2P
     int   ob2   = t.p2B
@@ -127,6 +134,7 @@ method goBlue(Trend t, float h, float l, int bar) =>
     t.st := 0
     t.p1P := na, t.p1B := na, t.p2P := na, t.p2B := na, t.p3P := na, t.p3B := na
     t.p3open := false, t.counter := na, t.corr := na
+    t.korr := false, t.corrFrom := na, t.why := why
     t.blue.clear()
     if oldSt == 1
         t.oldUp := op2, t.oldDn := na
@@ -152,16 +160,16 @@ method bluePriceEv(Trend t, bool isH, float h, float l, int bar) =>
     bool done = false
     // ENT-079: wieder über den alten P2 -> grün (Abwärts spiegelbildlich)
     if isH and not na(t.oldUp) and h >= t.oldUp + TICK
-        float p3  = t.extP
+        float p3  = t.extP                                              // ENT-098: P1 = Tief seit dem Bruch, P3 = P1
         int   p3b = t.extB
         for i = t.blue.size() - 1 to 0
             if t.blue.size() == 0
                 break
             Swing w = t.blue.get(i)
-            if w.kind == -1 and w.price > t.extP
+            if w.kind == -1 and w.bar > t.extB and w.price > t.extP
                 p3 := w.price, p3b := w.bar
                 break
-        t.goTo(1, t.extP, t.extB, h, bar, p3, p3b)
+        t.goTo(1, t.extP, t.extB, h, bar, p3, p3b, "über alten P2 " + str.tostring(t.oldUp, format.mintick) + " (ENT-079)")
         done := true
     else if not isH and not na(t.oldDn) and l <= t.oldDn - TICK
         float p3  = t.extP
@@ -170,10 +178,10 @@ method bluePriceEv(Trend t, bool isH, float h, float l, int bar) =>
             if t.blue.size() == 0
                 break
             Swing w = t.blue.get(i)
-            if w.kind == 1 and w.price < t.extP
+            if w.kind == 1 and w.bar > t.extB and w.price < t.extP
                 p3 := w.price, p3b := w.bar
                 break
-        t.goTo(-1, t.extP, t.extB, l, bar, p3, p3b)
+        t.goTo(-1, t.extP, t.extB, l, bar, p3, p3b, "unter alten P2 " + str.tostring(t.oldDn, format.mintick) + " (ENT-079)")
         done := true
     // ENT-042/043: Trendaufbau aus blau
     if not done and t.blue.size() >= 3
@@ -181,9 +189,9 @@ method bluePriceEv(Trend t, bool isH, float h, float l, int bar) =>
         Swing b = t.blue.get(t.blue.size() - 2)
         Swing d = t.blue.get(t.blue.size() - 1)
         if isH and a.kind == -1 and b.kind == 1 and d.kind == -1 and d.price >= a.price + TICK and h >= b.price + TICK
-            t.goTo(1, a.price, a.bar, h, bar, d.price, d.bar)
+            t.goTo(1, a.price, a.bar, h, bar, d.price, d.bar, "1-2-3 aus blau: über Hoch " + str.tostring(b.price, format.mintick))
         else if not isH and a.kind == 1 and b.kind == -1 and d.kind == 1 and d.price <= a.price - TICK and l <= b.price - TICK
-            t.goTo(-1, a.price, a.bar, l, bar, d.price, d.bar)
+            t.goTo(-1, a.price, a.bar, l, bar, d.price, d.bar, "1-2-3 aus blau: unter Tief " + str.tostring(b.price, format.mintick))
     t
 
 method priceEv(Trend t, bool isH, float h, float l, int bar) =>
@@ -191,40 +199,46 @@ method priceEv(Trend t, bool isH, float h, float l, int bar) =>
         if isH and h >= t.p2P + TICK                                   // ENT-035
             if not na(t.corr)                                          // ENT-095: P3 erst beim Bruch über P2
                 t.p3P := t.corr.price, t.p3B := t.corr.bar
+            if t.korr                                                  // Bruch über P2 = neue Bewegung (ENT-097)
+                t.corrFrom := t.p2B, t.korr := false
             t.p2P := h, t.p2B := bar, t.p3open := true, t.counter := na, t.corr := na
         else if not isH and l <= t.p3P - TICK                          // ENT-037
             if not na(t.counter)                                       // ENT-039/040 (D1)
-                t.goTo(-1, t.p2P, t.p2B, l, bar, t.counter.price, t.counter.bar)
+                t.goTo(-1, t.p2P, t.p2B, l, bar, t.counter.price, t.counter.bar, "Bruch P3 " + str.tostring(t.p3P, format.mintick) + " nach tieferem Hoch " + str.tostring(t.counter.price, format.mintick) + " (D1)")
             else                                                       // Skizze C/D2
-                t.goBlue(h, l, bar)
+                t.goBlue(h, l, bar, "Bruch P3 " + str.tostring(t.p3P, format.mintick) + " ohne tieferes Hoch")
     else if t.st == -1
         if not isH and l <= t.p2P - TICK
             if not na(t.corr)
                 t.p3P := t.corr.price, t.p3B := t.corr.bar
+            if t.korr
+                t.corrFrom := t.p2B, t.korr := false
             t.p2P := l, t.p2B := bar, t.p3open := true, t.counter := na, t.corr := na
         else if isH and h >= t.p3P + TICK
             if not na(t.counter)
-                t.goTo(1, t.p2P, t.p2B, h, bar, t.counter.price, t.counter.bar)
+                t.goTo(1, t.p2P, t.p2B, h, bar, t.counter.price, t.counter.bar, "Bruch P3 " + str.tostring(t.p3P, format.mintick) + " nach höherem Tief " + str.tostring(t.counter.price, format.mintick) + " (D1)")
             else
-                t.goBlue(h, l, bar)
+                t.goBlue(h, l, bar, "Bruch P3 " + str.tostring(t.p3P, format.mintick) + " ohne höheres Tief")
     else
         t.bluePriceEv(isH, h, l, bar)
     t
 
 method swingEv(Trend t, Swing sw) =>
+    if t.st != 0 and sw.bar >= t.p2B
+        t.korr := true                                                 // erster bestätigter Wendepunkt nach P2 (ENT-097)
     if t.st == 1
         if sw.kind == -1 and sw.bar > t.p2B                             // Tief X nach P2 (ENT-095)
             if na(t.corr) or sw.price < t.corr.price
                 t.corr := sw
-        else if sw.kind == -1 and sw.bar > t.p3B and sw.bar < t.p2B and sw.price > t.p3P
-            t.p3P := sw.price, t.p3B := sw.bar                         // nachträglich bestätigtes Korrekturtief vor P2
+        else if sw.kind == -1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and (t.p3B <= t.corrFrom or sw.price < t.p3P)
+            t.p3P := sw.price, t.p3B := sw.bar                         // nachträglich bestätigt: tiefstes Tief der Korrektur (ENT-099)
         else if sw.kind == 1 and sw.bar > t.p2B and sw.price <= t.p2P - TICK
             t.counter := sw                                            // tieferes Hoch (Hoch Y)
     else if t.st == -1
         if sw.kind == 1 and sw.bar > t.p2B
             if na(t.corr) or sw.price > t.corr.price
                 t.corr := sw
-        else if sw.kind == 1 and sw.bar > t.p3B and sw.bar < t.p2B and sw.price < t.p3P
+        else if sw.kind == 1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and (t.p3B <= t.corrFrom or sw.price > t.p3P)
             t.p3P := sw.price, t.p3B := sw.bar
         else if sw.kind == -1 and sw.bar > t.p2B and sw.price >= t.p2P + TICK
             t.counter := sw
@@ -256,7 +270,7 @@ method lateCheck(Trend t) =>
                     if high[k] > hx
                         hx := high[k], hb := bar_index - k
                 if hx >= b.price + TICK
-                    t.goTo(1, a.price, a.bar, hx, hb, d.price, d.bar)
+                    t.goTo(1, a.price, a.bar, hx, hb, d.price, d.bar, "1-2-3 aus blau (nachgeholt): über Hoch " + str.tostring(b.price, format.mintick))
             else if a.kind == 1 and b.kind == -1 and d.kind == 1 and d.price <= a.price - TICK
                 float lx = low
                 int   lb = bar_index
@@ -264,7 +278,7 @@ method lateCheck(Trend t) =>
                     if low[k] < lx
                         lx := low[k], lb := bar_index - k
                 if lx <= b.price - TICK
-                    t.goTo(-1, a.price, a.bar, lx, lb, d.price, d.bar)
+                    t.goTo(-1, a.price, a.bar, lx, lb, d.price, d.bar, "1-2-3 aus blau (nachgeholt): unter Tief " + str.tostring(b.price, format.mintick))
     t
 
 method runBar(Trend t, array<Swing> sws, bool highFirst) =>
@@ -365,9 +379,23 @@ for r in gwlRaw
 sigT.runBar(sigNew, hf)
 gwlT.runBar(gwlNew, hf)
 
-// Phase Bewegung/Korrektur (ENT-049, Buch Z-06/Z-11)
-bool gwlKorr = gwlT.st != 0 and sigT.st != gwlT.st
-bool sigKorr = sigT.st != 0 and sigT.p3open and sigT.p2B < bar_index
+// Phase Bewegung/Korrektur (ENT-049/097, Buch P-01/P-08): Korrektur ab dem ersten bestätigten
+// Wendepunkt nach P2, Bewegung ab dem Bruch über P2
+bool gwlKorr = gwlT.st != 0 and gwlT.korr
+bool sigKorr = sigT.st != 0 and sigT.korr
+
+// Grund des Farbwechsels im Chart (ENT-100)
+var array<label> dbgL = array.new<label>()
+dbgMark(Trend t, bool on, bool big) =>
+    if on and t.changed
+        string txt = stText(t.st) + "\n" + t.why
+        dbgL.push(label.new(bar_index, t.st == -1 ? high : low, txt,
+             style = t.st == -1 ? label.style_label_down : label.style_label_up,
+             color = color.new(stColor(t.st), big ? 20 : 60), textcolor = color.white, size = big ? size.small : size.tiny))
+        if dbgL.size() > 120
+            label.delete(dbgL.shift())
+dbgMark(gwlT, i_dbgGwl, true)
+dbgMark(sigT, i_dbgSig, false)
 
 // ───────────────────────────── Zickzack zeichnen (ENT-080: gerade Linien Extrem zu Extrem)
 for sw in sigNew

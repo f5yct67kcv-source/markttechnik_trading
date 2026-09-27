@@ -25,7 +25,9 @@ class TrendState:
     state: str = NONE
     p1: Point | None = None
     p2: Point | None = None
-    p3: Point | None = None      # gültige Bruchlinie (ENT-037/038)
+    p3: Point | None = None      # gültige Bruchlinie (ENT-037/095)
+    korr: bool = False           # Phase: True = Korrektur, False = Bewegung (ENT-097)
+    reason: str = ""             # Grund des letzten Zustandswechsels (ENT-100)
 
 
 @dataclass
@@ -33,6 +35,9 @@ class _Ctx:
     s: TrendState = field(default_factory=TrendState)
     p3_open: bool = False        # neuer P2 erreicht, Korrektur läuft (Phase)
     corr: Swing | None = None    # Korrekturextrem nach P2 (Tief X) – wird P3 erst beim Bruch über P2 (ENT-095)
+    corr_from: int | None = None # Kerze des vorherigen P2 = Beginn der letzten Korrektur (ENT-099)
+    korr: bool = False           # Phase Korrektur (ENT-097)
+    reason: str = ""
     counter: Swing | None = None # tieferes Hoch (UP) bzw. höheres Tief (DOWN) nach P2 (ENT-039/040)
     blue: list = field(default_factory=list)   # Wendepunkte seit Beginn der blauen Phase
     old_up_p2: float | None = None             # ENT-079
@@ -53,21 +58,23 @@ def run_trend(bars: list[Bar], swings: list[Swing], tick: float) -> list[TrendSt
         for sw in by_confirm.get(bar.idx, []):
             _swing_event(c, sw, tick)
             _late_check(c, bars, bar.idx, tick)
-        out.append(TrendState(c.s.state, c.s.p1, c.s.p2, c.s.p3))
+        out.append(TrendState(c.s.state, c.s.p1, c.s.p2, c.s.p3, c.korr, c.reason))
     return out
 
 
-def _go(c: _Ctx, state: str, p1: Point, p2: Point, p3: Point) -> None:
+def _go(c: _Ctx, state: str, p1: Point, p2: Point, p3: Point, reason: str = "") -> None:
     c.s = TrendState(state, p1, p2, p3)
     c.p3_open, c.counter, c.corr, c.blue = False, None, None, []
+    c.corr_from, c.korr, c.reason = None, False, reason           # Trend beginnt mit einer Bewegung
     c.old_up_p2 = c.old_down_p2 = None
     c.ext_since_blue = None
 
 
-def _go_blue(c: _Ctx, bar: Bar, ev: str) -> None:
+def _go_blue(c: _Ctx, bar: Bar, ev: str, reason: str = "") -> None:
     old, corr = c.s, c.corr
     c.s = TrendState(NONE)
     c.p3_open, c.counter, c.corr = False, None, None
+    c.corr_from, c.korr, c.reason = None, False, reason
     # Letztes Extrem des gebrochenen Trends ist der erste Punkt der blauen Phase (Skizze E2/E3).
     if old.state == UP:
         c.old_up_p2, c.old_down_p2 = old.p2.price, None
@@ -89,26 +96,32 @@ def _price_event(c: _Ctx, ev: str, bar: Bar, tick: float) -> None:
         if ev == "H" and bar.high >= s.p2.price + tick:          # ENT-035
             if c.corr is not None:                                # ENT-095: P3 erst beim Bruch über P2
                 s.p3 = Point(c.corr.price, c.corr.idx)
+            if c.korr:                                            # Bruch über P2 = neue Bewegung (ENT-097)
+                c.corr_from, c.korr = s.p2.idx, False
             s.p2 = Point(bar.high, bar.idx)
             c.p3_open, c.counter, c.corr = True, None, None
         elif ev == "L" and bar.low <= s.p3.price - tick:         # ENT-037
             if c.counter is not None:                             # ENT-039/040 (D1): direkt rot
                 _go(c, DOWN, Point(s.p2.price, s.p2.idx), Point(bar.low, bar.idx),
-                    Point(c.counter.price, c.counter.idx))
+                    Point(c.counter.price, c.counter.idx),
+                    f"Bruch P3 {s.p3.price:g} nach tieferem Hoch {c.counter.price:g} (D1)")
             else:                                                 # Skizze C/D2: blau
-                _go_blue(c, bar, ev)
+                _go_blue(c, bar, ev, f"Bruch P3 {s.p3.price:g} ohne tieferes Hoch")
     elif s.state == DOWN:
         if ev == "L" and bar.low <= s.p2.price - tick:
             if c.corr is not None:
                 s.p3 = Point(c.corr.price, c.corr.idx)
+            if c.korr:
+                c.corr_from, c.korr = s.p2.idx, False
             s.p2 = Point(bar.low, bar.idx)
             c.p3_open, c.counter, c.corr = True, None, None
         elif ev == "H" and bar.high >= s.p3.price + tick:
             if c.counter is not None:
                 _go(c, UP, Point(s.p2.price, s.p2.idx), Point(bar.high, bar.idx),
-                    Point(c.counter.price, c.counter.idx))
+                    Point(c.counter.price, c.counter.idx),
+                    f"Bruch P3 {s.p3.price:g} nach höherem Tief {c.counter.price:g} (D1)")
             else:
-                _go_blue(c, bar, ev)
+                _go_blue(c, bar, ev, f"Bruch P3 {s.p3.price:g} ohne höheres Tief")
     else:
         _blue_price_event(c, ev, bar, tick)
 
@@ -122,14 +135,16 @@ def _blue_price_event(c: _Ctx, ev: str, bar: Bar, tick: float) -> None:
             c.ext_since_blue = Point(bar.high, bar.idx)
     # ENT-079: wieder über den alten P2 -> grün (Abwärts spiegelbildlich)
     if ev == "H" and c.old_up_p2 is not None and bar.high >= c.old_up_p2 + tick:
-        low = c.ext_since_blue
-        p3 = next((Point(w.price, w.idx) for w in reversed(c.blue) if w.kind == "L" and w.price > low.price), low)
-        _go(c, UP, low, Point(bar.high, bar.idx), p3)
+        low = c.ext_since_blue                                     # ENT-098: P1 = Tief seit dem Bruch, P3 = P1
+        p3 = next((Point(w.price, w.idx) for w in reversed(c.blue)
+                   if w.kind == "L" and w.idx > low.idx and w.price > low.price), low)
+        _go(c, UP, low, Point(bar.high, bar.idx), p3, f"über alten P2 {c.old_up_p2:g} (ENT-079)")
         return
     if ev == "L" and c.old_down_p2 is not None and bar.low <= c.old_down_p2 - tick:
         high = c.ext_since_blue
-        p3 = next((Point(w.price, w.idx) for w in reversed(c.blue) if w.kind == "H" and w.price < high.price), high)
-        _go(c, DOWN, high, Point(bar.low, bar.idx), p3)
+        p3 = next((Point(w.price, w.idx) for w in reversed(c.blue)
+                   if w.kind == "H" and w.idx > high.idx and w.price < high.price), high)
+        _go(c, DOWN, high, Point(bar.low, bar.idx), p3, f"unter alten P2 {c.old_down_p2:g} (ENT-079)")
         return
     # ENT-042/043 bzw. allgemeiner Trendaufbau aus blau: Tief, Hoch, höheres Tief, über das Hoch -> grün
     w = c.blue
@@ -137,10 +152,12 @@ def _blue_price_event(c: _Ctx, ev: str, bar: Bar, tick: float) -> None:
         a, b, d = w[-3], w[-2], w[-1]
         if ev == "H" and (a.kind, b.kind, d.kind) == ("L", "H", "L") and d.price >= a.price + tick \
                 and bar.high >= b.price + tick:
-            _go(c, UP, Point(a.price, a.idx), Point(bar.high, bar.idx), Point(d.price, d.idx))
+            _go(c, UP, Point(a.price, a.idx), Point(bar.high, bar.idx), Point(d.price, d.idx),
+                f"1-2-3 aus blau: über Hoch {b.price:g}")
         elif ev == "L" and (a.kind, b.kind, d.kind) == ("H", "L", "H") and d.price <= a.price - tick \
                 and bar.low <= b.price - tick:
-            _go(c, DOWN, Point(a.price, a.idx), Point(bar.low, bar.idx), Point(d.price, d.idx))
+            _go(c, DOWN, Point(a.price, a.idx), Point(bar.low, bar.idx), Point(d.price, d.idx),
+                f"1-2-3 aus blau: unter Tief {b.price:g}")
 
 
 def _swing_event(c: _Ctx, sw: Swing, tick: float) -> None:
@@ -149,11 +166,14 @@ def _swing_event(c: _Ctx, sw: Swing, tick: float) -> None:
         up = s.state == UP
         corr_kind, peak_kind = ("L", "H") if up else ("H", "L")
         better = (lambda a, b: a < b) if up else (lambda a, b: a > b)   # extremer in Korrekturrichtung
+        if sw.idx >= s.p2.idx:
+            c.korr = True                                          # erster bestätigter Wendepunkt nach P2 (ENT-097)
         if sw.kind == corr_kind and sw.idx > s.p2.idx:
             if c.corr is None or better(sw.price, c.corr.price):
                 c.corr = sw                                        # Tief X (wartet auf Bruch über P2)
-        elif sw.kind == corr_kind and s.p3.idx < sw.idx < s.p2.idx and better(s.p3.price, sw.price):
-            s.p3 = Point(sw.price, sw.idx)                         # nachträglich bestätigtes Korrekturextrem vor P2
+        elif sw.kind == corr_kind and c.corr_from is not None and c.corr_from < sw.idx < s.p2.idx \
+                and (s.p3.idx <= c.corr_from or better(sw.price, s.p3.price)):
+            s.p3 = Point(sw.price, sw.idx)                         # nachträglich bestätigt: tiefstes Tief der Korrektur (ENT-099)
         elif sw.kind == peak_kind and sw.idx > s.p2.idx and \
                 (sw.price <= s.p2.price - tick if up else sw.price >= s.p2.price + tick):
             c.counter = sw                                         # tieferes Hoch / höheres Tief (Hoch Y)
@@ -179,8 +199,10 @@ def _late_check(c: _Ctx, bars: list[Bar], now: int, tick: float) -> None:
     if (a.kind, b.kind, d.kind) == ("L", "H", "L") and d.price >= a.price + tick:
         hi = max(seit, key=lambda x: x.high)
         if hi.high >= b.price + tick:
-            _go(c, UP, Point(a.price, a.idx), Point(hi.high, hi.idx), Point(d.price, d.idx))
+            _go(c, UP, Point(a.price, a.idx), Point(hi.high, hi.idx), Point(d.price, d.idx),
+                f"1-2-3 aus blau (nachgeholt): über Hoch {b.price:g}")
     elif (a.kind, b.kind, d.kind) == ("H", "L", "H") and d.price <= a.price - tick:
         lo = min(seit, key=lambda x: x.low)
         if lo.low <= b.price - tick:
-            _go(c, DOWN, Point(a.price, a.idx), Point(lo.low, lo.idx), Point(d.price, d.idx))
+            _go(c, DOWN, Point(a.price, a.idx), Point(lo.low, lo.idx), Point(d.price, d.idx),
+                f"1-2-3 aus blau (nachgeholt): unter Tief {b.price:g}")

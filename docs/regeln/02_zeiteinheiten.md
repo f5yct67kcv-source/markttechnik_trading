@@ -25,7 +25,7 @@ Nur Kernaussagen, kein Volltext. Status: **Z-06 verbindlich (ENT-047)**, Präzis
 
 - **Z-06 bestätigt die „Domino“-Idee** für ENT-011: Die Signaltrend-Bewegungen bilden die Bewegungen und Korrekturen der GWL.
 - **Z-08/Z-09 bestätigen ENT-039 bis ENT-043** (blau, Ausstieg aus blau).
-- **Z-11 ist eine neue Anforderung an die Anzeige:** Aktuelle Phase „Bewegung“ oder „Korrektur“ je Trendgrösse.
+- **Z-11 ist eine neue Anforderung an die Anzeige:** Aktuelle Phase „Bewegung“ oder „Korrektur“ je Trendgrösse (ENT-049, Definition ENT-097).
 
 ## Lücken – im Kapitel nicht geregelt
 

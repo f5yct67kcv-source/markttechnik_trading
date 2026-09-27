@@ -121,3 +121,35 @@ def test_D1_mit_verspaetetem_hoch_Y_wird_rot():                  # Live-Fehler M
     late.sort(key=lambda x: x.confirm_idx)
     s = run_trend(bars, late, T)[-1]
     assert s.state == DOWN and round(s.p1.price) == 60 and round(s.p3.price) == 52
+
+
+def test_ent098_p3_nach_ent079_ist_tief_seit_bruch():            # Skizze J, Frage 88
+    s = run([10, 40, 25, 60, 20, 65])[-1]
+    assert s.state == UP
+    assert round(s.p1.price, 1) == 19.8 and round(s.p3.price, 1) == 19.8
+
+
+def test_ent099_spaetes_tiefstes_korrekturtief_wird_p3():         # Frage 89, Buch S-04
+    from mtref.swings import Swing
+    bars = bars_from_path([10, 40, 25, 60, 50, 55, 45, 52, 70], steps=4)
+    sw = candle_swings(bars, T)
+    brk = next(b.idx for b in bars if b.high >= 60.2 + T)         # Kerze des Bruchs über P2
+    # beide Korrekturtiefs (50, 45) werden erst mit dem Bruch über P2 bestätigt
+    late = [Swing(x.kind, x.idx, x.price, max(x.confirm_idx, brk) if x.kind == "L" and round(x.price) in (50, 45) else x.confirm_idx)
+            for x in sw]
+    late.sort(key=lambda x: x.confirm_idx)
+    s = run_trend(bars, late, T)[-1]
+    assert s.state == UP and round(s.p3.price, 1) == 44.8
+
+
+def test_ent097_phase_korrektur_und_bewegung():
+    states = run([10, 40, 25, 60, 45, 70])
+    korr = [s.korr for s in states if s.state == UP]
+    assert korr[0] is False                      # Bewegung beim Entstehen
+    assert True in korr                          # Korrektur nach bestätigtem Hoch 60
+    assert states[-1].korr is False              # nach Bruch über P2 wieder Bewegung
+
+
+def test_ent100_grund_des_wechsels():
+    assert "D1" in run([10, 40, 25, 60, 40, 52, 15])[-1].reason
+    assert "ohne" in run([10, 40, 25, 60, 15])[-1].reason
