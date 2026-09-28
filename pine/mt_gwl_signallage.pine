@@ -1,7 +1,7 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v105", overlay = true, scale = scale.right,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v106", overlay = true, scale = scale.right,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
@@ -26,7 +26,7 @@ i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", min
 i_showSigL = input.bool(true, "Einstiegssignale im Chart (ENT-073)", group = grpS)
 i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
 grpX = "Fehlersuche (ENT-100)"
-i_dbgGwl   = input.bool(true,  "Grund bei GWL-Farbwechsel anzeigen", group = grpX)
+i_dbgGwl   = input.bool(false, "Grund bei GWL-Farbwechsel anzeigen", group = grpX)
 i_dbgSig   = input.bool(false, "Grund bei Signallage-Farbwechsel anzeigen", group = grpX)
 i_tabPos   = input.string("Oben links", "Position Info-Tabelle", options = ["Oben links", "Links Mitte", "Unten links", "Oben rechts", "Unten rechts"], group = grpS)
 TAB_POS = i_tabPos == "Oben links" ? position.top_left : i_tabPos == "Links Mitte" ? position.middle_left : i_tabPos == "Unten links" ? position.bottom_left : i_tabPos == "Oben rechts" ? position.top_right : position.bottom_right
