@@ -153,3 +153,35 @@ def test_ent097_phase_korrektur_und_bewegung():
 def test_ent100_grund_des_wechsels():
     assert "D1" in run([10, 40, 25, 60, 40, 52, 15])[-1].reason
     assert "ohne" in run([10, 40, 25, 60, 15])[-1].reason
+
+
+# ───────────────────────────── Trendstruktur (ENT-102)
+from mtref.trend import run_trend_struct
+
+
+def struct(path):
+    bars = bars_from_path(path)
+    return [(p.kind, round(p.price)) for p in run_trend_struct(bars, candle_swings(bars, T), T)[1]]
+
+
+def test_ent102_korrektur_innere_schwankungen_nicht_in_struktur():
+    # Korrektur 60 -> 45 -> 55 -> 35 -> 50 -> 30, dann Bruch über 60: nur P2 (60) und P3 (30) sind Punkte
+    assert struct([10, 40, 25, 60, 45, 55, 35, 50, 30, 70]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 30)]
+
+
+def test_ent102_struktur_beim_d1_wechsel():
+    # rot mit P1 60, Tief dazwischen 40, P3 50; das Bewegungstief 20 läuft noch (kein Strukturpunkt)
+    assert struct([10, 40, 25, 60, 40, 52, 45, 50, 20]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 40), ("H", 50)]
+
+
+def test_ent102_struktur_blau_und_ent079():
+    # Bruch ohne tieferes Hoch -> blau, dann über alten P2 -> grün mit P1 = Tief seit Bruch (ENT-098)
+    assert struct([10, 40, 25, 60, 20, 65]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 20)]
+
+
+def test_ent101_signal_pipeline_filter():
+    # Signallage = Kerzenregel + Tiefenfilter: der flache Rücksetzer 60 -> 55 (14 %) fällt weg
+    from mtref.gwl import causal_depth
+    bars = bars_from_path([10, 40, 25, 60, 55, 70, 50, 80])
+    f = causal_depth(candle_swings(bars, T), 0.382)
+    assert [round(x.price) for x in f] == [10, 40, 25, 70]           # 50 ist noch offen (Hoch 80 nicht bestätigt)
