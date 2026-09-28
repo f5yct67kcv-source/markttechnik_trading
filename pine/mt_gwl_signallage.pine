@@ -1,7 +1,7 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v106", overlay = true, scale = scale.right,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v107", overlay = true, scale = scale.right,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
@@ -20,10 +20,10 @@ i_showOpen = input.bool(true, "Eröffnung aktueller Tag", group = grpD)
 grpI = "Innenstäbe / Umkehrstäbe (nur ab 10-Min-Chart)"
 i_showIB   = input.bool(true, "Innenstab-Boxen (ENT-052/054)", group = grpI)
 i_ibFuzz   = input.int(0, "Unschärfe Innenstab in Ticks (ENT-062)", minval = 0, group = grpI)
-i_showUK   = input.bool(true, "Umkehrstäbe markieren (ENT-067/069)", group = grpI)
+i_showUK   = input.bool(false, "Umkehrstäbe markieren (ENT-067/069)", group = grpI)
 grpS = "Signale / Anzeige"
 i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", minval = 0, step = 0.1, group = grpS)
-i_showSigL = input.bool(true, "Einstiegssignale im Chart (ENT-073)", group = grpS)
+i_showSigL = input.bool(false, "Einstiegssignale im Chart (ENT-073)", group = grpS)
 i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
 grpX = "Fehlersuche (ENT-100)"
 i_dbgGwl   = input.bool(false, "Grund bei GWL-Farbwechsel anzeigen", group = grpX)
