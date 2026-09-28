@@ -215,3 +215,33 @@ def causal_depth(raw: list[Swing], thr: float) -> list[Swing]:
             else:
                 break
     return final
+
+
+def domino(bars: list[Bar], sig_states, tick: float) -> list[Swing]:
+    """M2 / ENT-104: GWL-Punkte nach Buch Z-06 aus den Richtungswechseln des Signaltrends.
+
+    Dreht der Signaltrend auf DOWN (rot), ist das höchste Hoch seit dem letzten GWL-Tief
+    ein GWL-Hoch; dreht er auf UP (grün), ist das tiefste Tief seit dem letzten GWL-Hoch
+    ein GWL-Tief. Blau (NONE) ist kein Trend und erzeugt keinen Punkt (Z-08).
+    confirm_idx = Kerze des Richtungswechsels."""
+    out: list[Swing] = []
+    leg = None                     # Richtung des laufenden GWL-Astes: "up" / "down"
+    hi = lo = bars[0]              # Extreme seit dem letzten GWL-Punkt
+    prev = None
+    for bar, st in zip(bars, sig_states):
+        if bar.high > hi.high:
+            hi = bar
+        if bar.low < lo.low:
+            lo = bar
+        state = st.state
+        if state != prev:
+            if state == "DOWN" and leg != "down":
+                out.append(Swing("H", hi.idx, hi.high, bar.idx))
+                leg, lo = "down", min(bars[hi.idx:bar.idx + 1], key=lambda b: b.low)
+                hi = bar
+            elif state == "UP" and leg != "up":
+                out.append(Swing("L", lo.idx, lo.low, bar.idx))
+                leg, hi = "up", max(bars[lo.idx:bar.idx + 1], key=lambda b: b.high)
+                lo = bar
+        prev = state
+    return out

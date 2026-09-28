@@ -185,3 +185,25 @@ def test_ent101_signal_pipeline_filter():
     bars = bars_from_path([10, 40, 25, 60, 55, 70, 50, 80])
     f = causal_depth(candle_swings(bars, T), 0.382)
     assert [round(x.price) for x in f] == [10, 40, 25, 70]           # 50 ist noch offen (Hoch 80 nicht bestätigt)
+
+
+# ───────────────────────────── Domino-GWL (ENT-104, Buch Z-06)
+def domino_pts(path):
+    from mtref.gwl import causal_depth, domino
+    bars = bars_from_path(path)
+    sig = causal_depth(candle_swings(bars, T), 0.382)
+    st = run_trend(bars, sig, T)
+    return [(s.kind, round(s.price)) for s in domino(bars, st, T)]
+
+
+def test_ent104_blauer_ruecksetzer_ist_kein_gwl_punkt():
+    # Signal: grün bis 60, Bruch unter 45 ohne tieferes Hoch (blau), dann wieder über 60: kein GWL-Punkt
+    p = domino_pts([10, 40, 25, 60, 45, 70, 40, 90])
+    assert ("H", 60) not in p and ("H", 70) not in p
+
+
+def test_ent104_roter_signaltrend_erzeugt_gwl_hoch_und_tief():
+    # Signal wird rot (tieferes Hoch 52, Bruch unter 40): GWL-Hoch 60. Danach grün ab 20: GWL-Tief 20.
+    p = domino_pts([10, 40, 25, 60, 40, 52, 20, 35, 25, 55, 45, 80])
+    assert ("H", 60) in p and ("L", 20) in p
+    assert p.index(("H", 60)) < p.index(("L", 20))

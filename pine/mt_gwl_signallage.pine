@@ -6,6 +6,7 @@ indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL", overlay = true, 
 
 // ───────────────────────────── Einstellungen
 grpT = "Trend"
+i_method   = input.string("Domino (Buch Z-06)", "GWL-Methode (ENT-104)", options = ["Domino (Buch Z-06)", "Variante C (Kerzenregel höhere Zeiteinheit)"], group = grpT)
 i_tf       = input.timeframe("", "GWL-Zeiteinheit (leer = automatisch, ENT-085)", group = grpT)
 i_thr      = input.float(38.2, "Tiefenfilter GWL in % (ENT-084)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
 i_thrSig   = input.float(38.2, "Tiefenfilter Signallage in % (ENT-101, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
@@ -426,44 +427,30 @@ method gwlFeed(array<Swing> s, Swing d, float thr) =>
     fin
 
 // ───────────────────────────── Zeichenhilfen
-// Zickzack aus Strukturpunkten (ENT-102): nur die seit dem letzten Zeichnen veränderten Segmente neu.
-method drawStruct(Trend t, array<line> ls, int w, string style, int cap) =>
-    int n = t.pts.size()
-    if t.structNew and n >= 2
-        int start = math.max(1, t.drawn - 1)                            // erstes neu zu zeichnendes Segment endet bei start
-        int rm = math.min(ls.size(), math.max(t.drawn - start, 0))
-        if rm > 0
-            for i = 1 to rm
-                line.delete(ls.pop())
-        if start <= n - 1
-            for i = start to n - 1
-                SPt a = t.pts.get(i - 1)
-                SPt b = t.pts.get(i)
-                ls.push(line.new(a.bar, a.price, b.bar, b.price, color = stColor(b.st), width = w, style = style))
-        while ls.size() > cap
-            line.delete(ls.shift())
-    t.drawn := n
-    t.structNew := false
-    t
+drawSeg(array<line> arr, int x1, float y1, int x2, float y2, color c, int w, string st, int cap) =>
+    arr.push(line.new(x1, y1, x2, y2, color = c, width = w, style = st))
+    if arr.size() > cap
+        line.delete(arr.shift())
 
-// laufender, noch nicht endgültiger Teil (blass): letzter Strukturpunkt -> P2 -> Korrekturextrem -> Kurs
-method drawRun(Trend t, array<line> tmp, int w) =>
-    int n = t.pts.size()
-    if n > 0
-        SPt a = t.pts.get(n - 1)
-        color c = color.new(stColor(t.st), 60)
-        if t.st != 0
-            if not (a.bar == t.p2B and a.kind == t.st)
-                tmp.push(line.new(a.bar, a.price, t.p2B, t.p2P, color = c, width = w))
-            if not na(t.corr)
-                tmp.push(line.new(t.p2B, t.p2P, t.corr.bar, t.corr.price, color = c, width = w))
-                if bar_index > t.corr.bar
-                    tmp.push(line.new(t.corr.bar, t.corr.price, bar_index, t.st == 1 ? high : low, color = c, width = w))
-            else if bar_index > t.p2B
-                tmp.push(line.new(t.p2B, t.p2P, bar_index, t.st == 1 ? low : high, color = c, width = w))
-        else if not na(t.extP) and not (a.bar == t.extB)
-            tmp.push(line.new(a.bar, a.price, t.extB, t.extP, color = c, width = w))
-    t
+// laufender, noch nicht endgültiger Teil (blass): letzter endgültiger Punkt -> offene Kandidaten -> Kursextrem
+drawPending(array<line> tmp, Swing last, array<Swing> cands, Finder f, color c, int w) =>
+    array<Swing> pts = array.new<Swing>()
+    if not na(last)
+        pts.push(last)
+    for x in cands
+        if pts.size() == 0 or x.bar > pts.get(pts.size() - 1).bar
+            pts.push(x)
+    if pts.size() > 0
+        Swing lp = pts.get(pts.size() - 1)
+        if f.dir == 1 and f.hiBar > lp.bar
+            pts.push(Swing.new(1, f.hiBar, f.hiP))
+        else if f.dir == -1 and f.loBar > lp.bar
+            pts.push(Swing.new(-1, f.loBar, f.loP))
+    if pts.size() > 1
+        for i = 1 to pts.size() - 1
+            Swing a = pts.get(i - 1)
+            Swing b = pts.get(i)
+            tmp.push(line.new(a.bar, a.price, b.bar, b.price, color = c, width = w))
 
 tfName(string tf) =>
     tf == "1" ? "1 Min" : tf == "10" ? "10 Min" : tf == "60" ? "60 Min" : tf == "D" ? "Tag" : tf == "W" ? "Woche" : tf == "M" ? "Monat" : tf
@@ -506,14 +493,48 @@ for r in sigRaw
         array<Swing> f = candS.gwlFeed(r, i_thrSig)
         for x in f
             sigNew.push(x)
-array<Swing> gwlRaw = gwlF.step(gH, gL, gHbar, gLbar, gid, hf)
-array<Swing> gwlNew = array.new<Swing>()
-for r in gwlRaw
-    array<Swing> f = cand.gwlFeed(r, i_thr)
-    for x in f
-        gwlNew.push(x)
-
 sigT.runBar(sigNew, hf)
+
+// GWL-Punkte (ENT-104): Domino nach Buch Z-06 aus den Richtungswechseln des Signaltrends,
+// oder Variante C (Kerzenregel auf den Kerzen der höheren Zeiteinheit + Tiefenfilter, ENT-084)
+bool DOMINO = i_method == "Domino (Buch Z-06)"
+var int   legDir = 0                                                 // Richtung des laufenden GWL-Astes
+var float dHi    = high
+var int   dHiB   = bar_index
+var float dLo    = low
+var int   dLoB   = bar_index
+var int   prevSt = 0
+array<Swing> gwlNew = array.new<Swing>()
+if DOMINO
+    if high > dHi
+        dHi := high, dHiB := bar_index
+    if low < dLo
+        dLo := low, dLoB := bar_index
+    if sigT.st != prevSt
+        if sigT.st == -1 and legDir != -1                            // Signal wird rot: höchstes Hoch seit dem letzten GWL-Tief ist GWL-Hoch
+            gwlNew.push(Swing.new(1, dHiB, dHi))
+            legDir := -1
+            dLo := low, dLoB := bar_index
+            for k = 0 to math.min(bar_index - dHiB, 4900)
+                if low[k] < dLo
+                    dLo := low[k], dLoB := bar_index - k
+            dHi := high, dHiB := bar_index
+        else if sigT.st == 1 and legDir != 1                         // Signal wird grün: tiefstes Tief seit dem letzten GWL-Hoch ist GWL-Tief
+            gwlNew.push(Swing.new(-1, dLoB, dLo))
+            legDir := 1
+            dHi := high, dHiB := bar_index
+            for k = 0 to math.min(bar_index - dLoB, 4900)
+                if high[k] > dHi
+                    dHi := high[k], dHiB := bar_index - k
+            dLo := low, dLoB := bar_index
+    prevSt := sigT.st
+else
+    array<Swing> gwlRaw = gwlF.step(gH, gL, gHbar, gLbar, gid, hf)
+    for r in gwlRaw
+        array<Swing> f = cand.gwlFeed(r, i_thr)
+        for x in f
+            gwlNew.push(x)
+
 gwlT.runBar(gwlNew, hf)
 
 // Phase Bewegung/Korrektur (ENT-049/097, Buch P-01/P-08): Korrektur ab dem ersten bestätigten
@@ -534,11 +555,17 @@ dbgMark(Trend t, bool on, bool big) =>
 dbgMark(gwlT, i_dbgGwl, true)
 dbgMark(sigT, i_dbgSig, false)
 
-// ───────────────────────────── Zickzack zeichnen (ENT-080/102: gerade Linien von Trendpunkt zu Trendpunkt)
-if i_showSig
-    sigT.drawStruct(sigLines, 1, line.style_dashed, i_maxSeg)
-if i_showGwl
-    gwlT.drawStruct(gwlLines, 4, line.style_solid, i_maxSeg)
+// ───────────────────────────── Zickzack zeichnen (ENT-080/105: alle Punkte der Grösse, Farbe = Zustand bei Bestätigung)
+var Swing lastSig = na
+var Swing lastGwl = na
+for sw in sigNew
+    if i_showSig and not na(lastSig)
+        drawSeg(sigLines, lastSig.bar, lastSig.price, sw.bar, sw.price, stColor(sigT.st), 1, line.style_dashed, i_maxSeg)
+    lastSig := sw
+for sw in gwlNew
+    if i_showGwl and not na(lastGwl)
+        drawSeg(gwlLines, lastGwl.bar, lastGwl.price, sw.bar, sw.price, stColor(gwlT.st), 4, line.style_solid, i_maxSeg)
+    lastGwl := sw
 
 // ───────────────────────────── Tageslinien (ENT-015/068)
 type Level
@@ -646,11 +673,18 @@ if barstate.islast
         label.delete(x)
     tmpL.clear()
     tmpB.clear()
-    // laufender, noch nicht endgültiger Teil je Grösse (ENT-083/102), blass
+    // laufender, noch nicht endgültiger Teil je Grösse (ENT-083/105), blass
     if i_showGwl
-        gwlT.drawRun(tmpL, 4)
+        if DOMINO
+            if not na(lastGwl)
+                float eP = legDir == -1 ? dLo : dHi
+                int   eB = legDir == -1 ? dLoB : dHiB
+                if eB > lastGwl.bar
+                    tmpL.push(line.new(lastGwl.bar, lastGwl.price, eB, eP, color = color.new(stColor(gwlT.st), 60), width = 4))
+        else
+            drawPending(tmpL, lastGwl, cand, gwlF, color.new(stColor(gwlT.st), 60), 4)
     if i_showSig
-        sigT.drawRun(tmpL, 1)
+        drawPending(tmpL, lastSig, candS, sigF, color.new(stColor(sigT.st), 50), 1)
     // Punkte 1-2-3 der GWL (gross) und der Signallage (klein)
     if gwlT.st != 0 and i_showGwl
         bool up = gwlT.st == 1
