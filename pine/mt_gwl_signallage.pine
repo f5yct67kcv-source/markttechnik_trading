@@ -90,7 +90,7 @@ type Trend
     Swing counter
     array<Swing> after                                                 // bestätigte Wendepunkte seit P2 (Struktur beim D1-Wechsel)
     array<Swing> blue
-    array<SPt>   struct                                                // Strukturpunkte (ENT-102)
+    array<SPt>   pts                                                   // Strukturpunkte (ENT-102)
     bool  structNew = false                                            // Struktur seit dem letzten Zeichnen verändert
     int   drawn = 0                                                    // Anzahl bereits gezeichneter Strukturpunkte
     float oldUp
@@ -100,25 +100,25 @@ type Trend
 
 // ───────────────────────────── Struktur (ENT-102)
 method sPush(Trend t, int kind, int bar, float price) =>
-    int n = t.struct.size()
-    SPt last = n > 0 ? t.struct.get(n - 1) : na
+    int n = t.pts.size()
+    SPt last = n > 0 ? t.pts.get(n - 1) : na
     bool same = not na(last) and last.bar == bar and last.kind == kind
     if not same
         if not na(last) and last.kind == kind                          // gleiche Art: extremeren behalten
             if (kind == 1 and price >= last.price) or (kind == -1 and price <= last.price)
-                t.struct.set(n - 1, SPt.new(kind, bar, price, t.st))
+                t.pts.set(n - 1, SPt.new(kind, bar, price, t.st))
                 t.structNew := true
         else
-            t.struct.push(SPt.new(kind, bar, price, t.st))
+            t.pts.push(SPt.new(kind, bar, price, t.st))
             t.structNew := true
     t
 
 method sReplaceLast(Trend t, int kind, int bar, float price) =>
-    int n = t.struct.size()
-    if n > 0 and t.struct.get(n - 1).kind == kind
-        t.struct.set(n - 1, SPt.new(kind, bar, price, t.st))
+    int n = t.pts.size()
+    if n > 0 and t.pts.get(n - 1).kind == kind
+        t.pts.set(n - 1, SPt.new(kind, bar, price, t.st))
     else
-        t.struct.push(SPt.new(kind, bar, price, t.st))
+        t.pts.push(SPt.new(kind, bar, price, t.st))
     t.structNew := true
     t
 
@@ -428,7 +428,7 @@ method gwlFeed(array<Swing> s, Swing d, float thr) =>
 // ───────────────────────────── Zeichenhilfen
 // Zickzack aus Strukturpunkten (ENT-102): nur die seit dem letzten Zeichnen veränderten Segmente neu.
 method drawStruct(Trend t, array<line> ls, int w, string style, int cap) =>
-    int n = t.struct.size()
+    int n = t.pts.size()
     if t.structNew and n >= 2
         int start = math.max(1, t.drawn - 1)                            // erstes neu zu zeichnendes Segment endet bei start
         int rm = math.min(ls.size(), math.max(t.drawn - start, 0))
@@ -437,8 +437,8 @@ method drawStruct(Trend t, array<line> ls, int w, string style, int cap) =>
                 line.delete(ls.pop())
         if start <= n - 1
             for i = start to n - 1
-                SPt a = t.struct.get(i - 1)
-                SPt b = t.struct.get(i)
+                SPt a = t.pts.get(i - 1)
+                SPt b = t.pts.get(i)
                 ls.push(line.new(a.bar, a.price, b.bar, b.price, color = stColor(b.st), width = w, style = style))
         while ls.size() > cap
             line.delete(ls.shift())
@@ -448,9 +448,9 @@ method drawStruct(Trend t, array<line> ls, int w, string style, int cap) =>
 
 // laufender, noch nicht endgültiger Teil (blass): letzter Strukturpunkt -> P2 -> Korrekturextrem -> Kurs
 method drawRun(Trend t, array<line> tmp, int w) =>
-    int n = t.struct.size()
+    int n = t.pts.size()
     if n > 0
-        SPt a = t.struct.get(n - 1)
+        SPt a = t.pts.get(n - 1)
         color c = color.new(stColor(t.st), 60)
         if t.st != 0
             if not (a.bar == t.p2B and a.kind == t.st)
@@ -471,8 +471,8 @@ tfName(string tf) =>
 // ───────────────────────────── Zustand
 var Finder sigF = Finder.new()
 var Finder gwlF = Finder.new()
-var Trend  sigT = Trend.new(blue = array.new<Swing>(), after = array.new<Swing>(), struct = array.new<SPt>())
-var Trend  gwlT = Trend.new(blue = array.new<Swing>(), after = array.new<Swing>(), struct = array.new<SPt>())
+var Trend  sigT = Trend.new(blue = array.new<Swing>(), after = array.new<Swing>(), pts = array.new<SPt>())
+var Trend  gwlT = Trend.new(blue = array.new<Swing>(), after = array.new<Swing>(), pts = array.new<SPt>())
 var array<Swing> cand  = array.new<Swing>()                          // offene GWL-Kandidaten (Tiefenfilter)
 var array<Swing> candS = array.new<Swing>()                          // offene Signal-Kandidaten (ENT-101)
 var array<line>  sigLines = array.new<line>()
