@@ -1,7 +1,7 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v108", overlay = true,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v109", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
@@ -37,6 +37,8 @@ cUp  = color.rgb(26, 150, 65)     // grün  = Aufwärtstrend
 cDn  = color.rgb(215, 25, 28)     // rot   = Abwärtstrend
 cNo  = color.rgb(43, 108, 176)    // blau  = trendlos
 stColor(int st) => st == 1 ? cUp : st == -1 ? cDn : cNo
+// Zeichnungen dürfen höchstens ~5000 Kerzen zurückreichen (RE10026): ältere x-Werte werden angeschnitten
+xc(int b) => math.max(b, bar_index - 4900)
 stText(int st) => st == 1 ? "AUF (grün)" : st == -1 ? "AB (rot)" : "TRENDLOS (blau)"
 
 // Nächsthöhere Stufe der Leiter aus ENT-003 (ENT-085)
@@ -428,7 +430,7 @@ method gwlFeed(array<Swing> s, Swing d, float thr) =>
 
 // ───────────────────────────── Zeichenhilfen
 drawSeg(array<line> arr, int x1, float y1, int x2, float y2, color c, int w, string st, int cap) =>
-    arr.push(line.new(x1, y1, x2, y2, color = c, width = w, style = st))
+    arr.push(line.new(xc(x1), y1, xc(x2), y2, color = c, width = w, style = st))
     if arr.size() > cap
         line.delete(arr.shift())
 
@@ -450,7 +452,7 @@ drawPending(array<line> tmp, Swing last, array<Swing> cands, Finder f, color c, 
         for i = 1 to pts.size() - 1
             Swing a = pts.get(i - 1)
             Swing b = pts.get(i)
-            tmp.push(line.new(a.bar, a.price, b.bar, b.price, color = c, width = w))
+            tmp.push(line.new(xc(a.bar), a.price, xc(b.bar), b.price, color = c, width = w))
 
 tfName(string tf) =>
     tf == "1" ? "1 Min" : tf == "10" ? "10 Min" : tf == "60" ? "60 Min" : tf == "D" ? "Tag" : tf == "W" ? "Woche" : tf == "M" ? "Monat" : tf
@@ -587,10 +589,10 @@ bool newDay = timeframe.isintraday and dayChg
 if newDay
     if not na(dH) and i_showDay
         string ds = str.format_time(dTime, "dd.MM.yy", syminfo.timezone)
-        levels.push(Level.new(dH, true,  line.new(dHbar, dH, bar_index, dH, color = color.new(cDn, 30), style = line.style_dotted),
-             label.new(dHbar, dH, ds + "  " + str.tostring(dH, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
-        levels.push(Level.new(dL, false, line.new(dLbar, dL, bar_index, dL, color = color.new(cDn, 30), style = line.style_dotted),
-             label.new(dLbar, dL, ds + "  " + str.tostring(dL, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
+        levels.push(Level.new(dH, true,  line.new(xc(dHbar), dH, bar_index, dH, color = color.new(cDn, 30), style = line.style_dotted),
+             label.new(xc(dHbar), dH, ds + "  " + str.tostring(dH, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
+        levels.push(Level.new(dL, false, line.new(xc(dLbar), dL, bar_index, dL, color = color.new(cDn, 30), style = line.style_dotted),
+             label.new(xc(dLbar), dL, ds + "  " + str.tostring(dL, format.mintick), style = label.style_none, textcolor = color.new(cDn, 20), size = size.small)))
         while levels.size() > 2 * i_days
             Level o = levels.shift()
             line.delete(o.ln)
@@ -632,7 +634,7 @@ if IS_TF10 and i_showIB
     bool inside = not na(oH) and bar_index > oBar and close <= oH + fz and close >= oL - fz
     if inside
         if na(ib)
-            ib := box.new(oBar, oH, bar_index, oL, border_color = color.new(color.orange, 40), bgcolor = color.new(color.orange, 88))
+            ib := box.new(xc(oBar), oH, bar_index, oL, border_color = color.new(color.orange, 40), bgcolor = color.new(color.orange, 88))
         else
             box.set_right(ib, bar_index)
     else
@@ -680,7 +682,7 @@ if barstate.islast
                 float eP = legDir == -1 ? dLo : dHi
                 int   eB = legDir == -1 ? dLoB : dHiB
                 if eB > lastGwl.bar
-                    tmpL.push(line.new(lastGwl.bar, lastGwl.price, eB, eP, color = color.new(stColor(gwlT.st), 60), width = 4))
+                    tmpL.push(line.new(xc(lastGwl.bar), lastGwl.price, xc(eB), eP, color = color.new(stColor(gwlT.st), 60), width = 4))
         else
             drawPending(tmpL, lastGwl, cand, gwlF, color.new(stColor(gwlT.st), 60), 4)
     if i_showSig
@@ -688,20 +690,20 @@ if barstate.islast
     // Punkte 1-2-3 der GWL (gross) und der Signallage (klein)
     if gwlT.st != 0 and i_showGwl
         bool up = gwlT.st == 1
-        tmpB.push(label.new(gwlT.p1B, gwlT.p1P, "1", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
-        tmpB.push(label.new(gwlT.p2B, gwlT.p2P, "2", style = up ? label.style_label_down : label.style_label_up, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
-        tmpB.push(label.new(gwlT.p3B, gwlT.p3P, "3", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
-        tmpL.push(line.new(gwlT.p3B, gwlT.p3P, bar_index + 15, gwlT.p3P, color = stColor(gwlT.st), width = 2))
+        tmpB.push(label.new(xc(gwlT.p1B), gwlT.p1P, "1", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpB.push(label.new(xc(gwlT.p2B), gwlT.p2P, "2", style = up ? label.style_label_down : label.style_label_up, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpB.push(label.new(xc(gwlT.p3B), gwlT.p3P, "3", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 0), textcolor = color.white))
+        tmpL.push(line.new(xc(gwlT.p3B), gwlT.p3P, bar_index + 15, gwlT.p3P, color = stColor(gwlT.st), width = 2))
         // vorläufiger P3 in Klammern: Tief X, wird erst beim Bruch über P2 zum P3 (ENT-095)
         if not na(gwlT.corr)
-            tmpB.push(label.new(gwlT.corr.bar, gwlT.corr.price, "(3)", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 50), textcolor = color.white))
+            tmpB.push(label.new(xc(gwlT.corr.bar), gwlT.corr.price, "(3)", style = up ? label.style_label_up : label.style_label_down, color = color.new(stColor(gwlT.st), 50), textcolor = color.white))
     if sigT.st != 0 and i_showSig
         bool up2 = sigT.st == 1
-        tmpB.push(label.new(sigT.p2B, sigT.p2P, "s2", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
-        tmpB.push(label.new(sigT.p3B, sigT.p3P, "s3", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
-        tmpL.push(line.new(sigT.p3B, sigT.p3P, bar_index + 10, sigT.p3P, color = stColor(sigT.st), style = line.style_dotted))
+        tmpB.push(label.new(xc(sigT.p2B), sigT.p2P, "s2", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
+        tmpB.push(label.new(xc(sigT.p3B), sigT.p3P, "s3", style = label.style_none, textcolor = stColor(sigT.st), size = size.small))
+        tmpL.push(line.new(xc(sigT.p3B), sigT.p3P, bar_index + 10, sigT.p3P, color = stColor(sigT.st), style = line.style_dotted))
         if not na(sigT.corr)
-            tmpB.push(label.new(sigT.corr.bar, sigT.corr.price, "(s3)", style = label.style_none, textcolor = color.new(stColor(sigT.st), 30), size = size.small))
+            tmpB.push(label.new(xc(sigT.corr.bar), sigT.corr.price, "(s3)", style = label.style_none, textcolor = color.new(stColor(sigT.st), 30), size = size.small))
 
 var table tab = table.new(TAB_POS, 4, 3, bgcolor = color.new(color.black, 20), border_width = 1)
 if barstate.islast and i_showTab
