@@ -1,7 +1,7 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v110", overlay = true,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v111", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
@@ -25,6 +25,11 @@ grpS = "Signale / Anzeige"
 i_premAtr  = input.float(1.0, "Premium: Abstand ≤ x × ATR(20) (ENT-072)", minval = 0, step = 0.1, group = grpS)
 i_showSigL = input.bool(false, "Einstiegssignale im Chart (ENT-073)", group = grpS)
 i_showTab  = input.bool(true, "Info-Tabelle (ENT-049)", group = grpS)
+grpB = "Einstiegsbarometer (ENT-112)"
+i_showBaro = input.bool(true, "Farbbalken 2 → 3 je Grösse", group = grpB)
+i_baroOff  = input.int(3, "Abstand rechts vom Kurs in Kerzen", minval = 1, maxval = 50, group = grpB)
+i_baroW    = input.int(2, "Breite in Kerzen", minval = 1, maxval = 10, group = grpB)
+i_baroN    = input.int(24, "Farbstufen", minval = 4, maxval = 40, group = grpB)
 grpX = "Fehlersuche (ENT-100)"
 i_dbgGwl   = input.bool(false, "Grund bei GWL-Farbwechsel anzeigen", group = grpX)
 i_dbgSig   = input.bool(false, "Grund bei Signallage-Farbwechsel anzeigen", group = grpX)
@@ -454,6 +459,29 @@ drawPending(array<line> tmp, Swing last, array<Swing> cands, Finder f, color c, 
             Swing b = pts.get(i)
             tmp.push(line.new(xc(a.bar), a.price, xc(b.bar), b.price, color = c, width = w))
 
+// Einstiegsbarometer (ENT-112): Farbbalken vom 2 (rot) über gelb zum 3 (grün), Zeiger = aktueller Kurs
+drawBaro(array<box> bx, array<line> ln, Trend t, int x1, int w) =>
+    if t.st != 0 and not na(t.p2P) and not na(t.p3P) and t.p2P != t.p3P
+        float top = math.max(t.p2P, t.p3P)
+        float bot = math.min(t.p2P, t.p3P)
+        float h   = (top - bot) / i_baroN
+        for i = 0 to i_baroN - 1
+            float yB  = bot + i * h
+            float yT  = yB + h
+            float f   = math.abs((yB + yT) / 2 - t.p2P) / (top - bot)      // 0 am 2 (rot) … 1 am 3 (grün)
+            color c   = f < 0.5 ? color.from_gradient(f, 0, 0.5, cDn, color.yellow) : color.from_gradient(f, 0.5, 1, color.yellow, cUp)
+            bx.push(box.new(x1, yT, x1 + w, yB, border_color = na, bgcolor = color.new(c, 20)))
+        float cl = math.min(math.max(close, bot), top)
+        ln.push(line.new(x1, cl, x1 + w, cl, color = color.aqua, width = 3))
+
+// Korrekturtiefe (Anteil des Astes 2 → 3, den der Kurs zurückgelegt hat) und Stoppabstand in Ticks
+baroText(Trend t) =>
+    if t.st == 0 or na(t.p2P) or na(t.p3P) or t.p2P == t.p3P
+        "–"
+    else
+        float f = math.abs(t.p2P - close) / math.abs(t.p2P - t.p3P)
+        str.tostring(math.round(f * 100)) + " % · " + str.tostring(math.round(math.abs(close - t.p3P) / TICK)) + " Ticks"
+
 tfName(string tf) =>
     tf == "1" ? "1 Min" : tf == "10" ? "10 Min" : tf == "60" ? "60 Min" : tf == "D" ? "Tag" : tf == "W" ? "Woche" : tf == "M" ? "Monat" : tf
 
@@ -668,13 +696,24 @@ if dayBreak != ""
 // ───────────────────────────── Letzte Kerze: laufender Ast, Punkte, Bruchlinien, Tabelle
 var array<line>  tmpL = array.new<line>()
 var array<label> tmpB = array.new<label>()
+var array<box>   tmpX = array.new<box>()
 if barstate.islast
     for x in tmpL
         line.delete(x)
     for x in tmpB
         label.delete(x)
+    for x in tmpX
+        box.delete(x)
     tmpL.clear()
     tmpB.clear()
+    tmpX.clear()
+    // Einstiegsbarometer (ENT-112): GWL aussen, Signallage innen
+    if i_showBaro
+        int bx1 = bar_index + i_baroOff
+        if i_showSig
+            drawBaro(tmpX, tmpL, sigT, bx1, i_baroW)
+        if i_showGwl
+            drawBaro(tmpX, tmpL, gwlT, bx1 + i_baroW + 1, i_baroW)
     // laufender, noch nicht endgültiger Teil je Grösse (ENT-083/105), blass
     if i_showGwl
         if DOMINO
@@ -705,17 +744,20 @@ if barstate.islast
         if not na(sigT.corr)
             tmpB.push(label.new(xc(sigT.corr.bar), sigT.corr.price, "(s3)", style = label.style_none, textcolor = color.new(stColor(sigT.st), 30), size = size.small))
 
-var table tab = table.new(TAB_POS, 4, 3, bgcolor = color.new(color.black, 20), border_width = 1)
+var table tab = table.new(TAB_POS, 5, 3, bgcolor = color.new(color.black, 20), border_width = 1)
 if barstate.islast and i_showTab
     table.cell(tab, 0, 0, "Grösse", text_color = color.white)
     table.cell(tab, 1, 0, "Trend", text_color = color.white)
     table.cell(tab, 2, 0, "Phase", text_color = color.white)
     table.cell(tab, 3, 0, "Bruchlinie", text_color = color.white)
+    table.cell(tab, 4, 0, "Korrektur · Stopp", text_color = color.white)
     table.cell(tab, 0, 1, "GWL (" + tfName(GWL_TF) + ")", text_color = color.white)
     table.cell(tab, 1, 1, stText(gwlT.st), bgcolor = stColor(gwlT.st), text_color = color.white)
     table.cell(tab, 2, 1, gwlT.st == 0 ? "–" : gwlKorr ? "Korrektur" : "Bewegung", text_color = color.white)
     table.cell(tab, 3, 1, na(gwlT.p3P) ? "–" : str.tostring(gwlT.p3P, format.mintick), text_color = color.white)
+    table.cell(tab, 4, 1, baroText(gwlT), text_color = color.white)
     table.cell(tab, 0, 2, "Signal (" + tfName(timeframe.period) + ")", text_color = color.white)
     table.cell(tab, 1, 2, stText(sigT.st), bgcolor = stColor(sigT.st), text_color = color.white)
     table.cell(tab, 2, 2, sigT.st == 0 ? "–" : sigKorr ? "Korrektur" : "Bewegung", text_color = color.white)
     table.cell(tab, 3, 2, na(sigT.p3P) ? "–" : str.tostring(sigT.p3P, format.mintick), text_color = color.white)
+    table.cell(tab, 4, 2, baroText(sigT), text_color = color.white)
