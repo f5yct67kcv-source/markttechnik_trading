@@ -1,12 +1,12 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v109", overlay = true,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v110", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
 grpT = "Trend"
-i_method   = input.string("Domino (Buch Z-06)", "GWL-Methode (ENT-104)", options = ["Domino (Buch Z-06)", "Variante C (Kerzenregel höhere Zeiteinheit)"], group = grpT)
+i_method   = input.string("Variante C (Kerzenregel höhere Zeiteinheit)", "GWL-Methode (ENT-104/110)", options = ["Variante C (Kerzenregel höhere Zeiteinheit)", "Domino (Buch Z-06)"], group = grpT)
 i_tf       = input.timeframe("", "GWL-Zeiteinheit (leer = automatisch, ENT-085)", group = grpT)
 i_thr      = input.float(38.2, "Tiefenfilter GWL in % (ENT-084)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
 i_thrSig   = input.float(38.2, "Tiefenfilter Signallage in % (ENT-101, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
