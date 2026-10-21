@@ -1,15 +1,16 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v111", overlay = true,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v112", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
 grpT = "Trend"
-i_method   = input.string("Variante C (Kerzenregel höhere Zeiteinheit)", "GWL-Methode (ENT-104/110)", options = ["Variante C (Kerzenregel höhere Zeiteinheit)", "Domino (Buch Z-06)"], group = grpT)
+i_method   = input.string("Domino (Buch Z-06)", "GWL-Methode (ENT-104/116)", options = ["Domino (Buch Z-06)", "Variante C (Kerzenregel höhere Zeiteinheit)"], group = grpT)
 i_tf       = input.timeframe("", "GWL-Zeiteinheit (leer = automatisch, ENT-085)", group = grpT)
 i_thr      = input.float(38.2, "Tiefenfilter GWL in % (ENT-084)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
-i_thrSig   = input.float(38.2, "Tiefenfilter Signallage in % (ENT-101, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
+i_thrSig   = input.float(0, "Tiefenfilter Signallage in % (ENT-101/116, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
+i_tick     = input.float(0, "Tick-Grösse für die Regeln (0 = Symbol; CFD: z. B. US30 1, NQ 0.25, CL 0.01) (ENT-115)", minval = 0, step = 0.01, group = grpT)
 i_showSig  = input.bool(true, "Signallage anzeigen (fein)", group = grpT)
 i_showGwl  = input.bool(true, "GWL anzeigen (dick)", group = grpT)
 i_maxSeg   = input.int(150, "Max. gezeichnete Äste je Grösse (ENT-032)", minval = 10, maxval = 200, group = grpT)
@@ -37,7 +38,7 @@ i_tabPos   = input.string("Oben links", "Position Info-Tabelle", options = ["Obe
 TAB_POS = i_tabPos == "Oben links" ? position.top_left : i_tabPos == "Links Mitte" ? position.middle_left : i_tabPos == "Unten links" ? position.bottom_left : i_tabPos == "Oben rechts" ? position.top_right : position.bottom_right
 
 // ───────────────────────────── Konstanten
-TICK = syminfo.mintick
+TICK = i_tick > 0 ? i_tick : syminfo.mintick
 cUp  = color.rgb(26, 150, 65)     // grün  = Aufwärtstrend
 cDn  = color.rgb(215, 25, 28)     // rot   = Abwärtstrend
 cNo  = color.rgb(43, 108, 176)    // blau  = trendlos
@@ -94,7 +95,7 @@ type Trend
     int   corrFrom                                                     // Bar des vorherigen P2 = Beginn der letzten Korrektur (ENT-099)
     float corrFromP
     string why    = ""                                                 // Grund des letzten Wechsels (ENT-100)
-    Swing corr                                                         // Korrekturextrem nach P2, wird P3 erst beim Bruch über P2 (ENT-095)
+    Swing corr                                                         // Korrekturextrem nach P2 (tiefstes Tief, für Struktur und D1)
     Swing counter
     array<Swing> after                                                 // bestätigte Wendepunkte seit P2 (Struktur beim D1-Wechsel)
     array<Swing> blue
@@ -208,8 +209,7 @@ method p2Break(Trend t, float h, float l, int bar, bool up) =>
     int peak = up ? 1 : -1
     if t.korr or not na(t.corr)
         t.sPush(peak, t.p2B, t.p2P)
-        if not na(t.corr)                                              // ENT-095: P3 erst beim Bruch über P2
-            t.p3P := t.corr.price, t.p3B := t.corr.bar
+        if not na(t.corr)                                              // Korrekturextrem wird Strukturpunkt (P3 steht schon, ENT-114)
             t.sPush(-peak, t.corr.bar, t.corr.price)
         t.corrFrom := t.p2B, t.corrFromP := t.p2P                      // Beginn der Korrektur (ENT-099)
     t.korr := false                                                    // Bruch über P2 = neue Bewegung (ENT-097)
@@ -322,11 +322,13 @@ method swingEv(Trend t, Swing sw) =>
                 if t.after.size() > 50
                     t.after.shift()
     if t.st == 1
-        if sw.kind == -1 and sw.bar > t.p2B                             // Tief X nach P2 (ENT-095)
+        if sw.kind == -1 and sw.bar > t.p2B                             // Korrekturtief nach P2
             if na(t.corr) or sw.price < t.corr.price
                 t.corr := sw
-        else if sw.kind == -1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and (t.p3B <= t.corrFrom or sw.price < t.p3P)
-            t.p3P := sw.price, t.p3B := sw.bar                         // nachträglich bestätigt: tiefstes Tief der Korrektur (ENT-099)
+            if sw.bar > t.p3B
+                t.p3P := sw.price, t.p3B := sw.bar                     // ENT-114: letztes bestätigtes Korrekturtief ist sofort die Bruchlinie
+        else if sw.kind == -1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and sw.bar > t.p3B
+            t.p3P := sw.price, t.p3B := sw.bar                         // nachträglich bestätigt (ENT-099/114): spätestes Tief der Korrektur
             t.sPush(1, t.corrFrom, t.corrFromP)
             t.sReplaceLast(-1, sw.bar, sw.price)
         else if sw.kind == 1 and sw.bar > t.p2B and sw.price <= t.p2P - TICK
@@ -335,7 +337,9 @@ method swingEv(Trend t, Swing sw) =>
         if sw.kind == 1 and sw.bar > t.p2B
             if na(t.corr) or sw.price > t.corr.price
                 t.corr := sw
-        else if sw.kind == 1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and (t.p3B <= t.corrFrom or sw.price > t.p3P)
+            if sw.bar > t.p3B
+                t.p3P := sw.price, t.p3B := sw.bar                     // ENT-114 spiegelbildlich
+        else if sw.kind == 1 and not na(t.corrFrom) and sw.bar > t.corrFrom and sw.bar < t.p2B and sw.bar > t.p3B
             t.p3P := sw.price, t.p3B := sw.bar
             t.sPush(-1, t.corrFrom, t.corrFromP)
             t.sReplaceLast(1, sw.bar, sw.price)

@@ -30,7 +30,7 @@ class TrendState:
     state: str = NONE
     p1: Point | None = None
     p2: Point | None = None
-    p3: Point | None = None      # gültige Bruchlinie (ENT-037/095)
+    p3: Point | None = None      # gültige Bruchlinie (ENT-037/114)
     korr: bool = False           # Phase: True = Korrektur, False = Bewegung (ENT-097)
     reason: str = ""             # Grund des letzten Zustandswechsels (ENT-100)
 
@@ -48,7 +48,7 @@ class SPoint:
 class _Ctx:
     s: TrendState = field(default_factory=TrendState)
     p3_open: bool = False        # neuer P2 erreicht, Korrektur läuft (Phase)
-    corr: Swing | None = None    # Korrekturextrem nach P2 (Tief X) – wird P3 erst beim Bruch über P2 (ENT-095)
+    corr: Swing | None = None    # Korrekturextrem nach P2 (tiefstes Tief, für Struktur und D1)
     corr_from: int | None = None # Kerze des vorherigen P2 = Beginn der letzten Korrektur (ENT-099)
     corr_from_p: float | None = None
     korr: bool = False           # Phase Korrektur (ENT-097)
@@ -148,8 +148,7 @@ def _p2_break(c: _Ctx, bar: Bar, up: bool) -> None:
     peak, corr_kind = ("H", "L") if up else ("L", "H")
     if c.korr or c.corr is not None:
         _s_push(c, peak, s.p2.idx, s.p2.price)
-        if c.corr is not None:                                    # ENT-095: P3 erst beim Bruch über P2
-            s.p3 = Point(c.corr.price, c.corr.idx)
+        if c.corr is not None:                                    # Korrekturextrem wird Strukturpunkt (P3 steht schon, ENT-114)
             _s_push(c, corr_kind, c.corr.idx, c.corr.price)
         c.corr_from, c.corr_from_p = s.p2.idx, s.p2.price          # Beginn der Korrektur (ENT-099)
     c.korr = False                                                # Bruch über P2 = neue Bewegung (ENT-097)
@@ -248,10 +247,12 @@ def _swing_event(c: _Ctx, sw: Swing, tick: float) -> None:
                 c.after.append(sw)
         if sw.kind == corr_kind and sw.idx > s.p2.idx:
             if c.corr is None or better(sw.price, c.corr.price):
-                c.corr = sw                                        # Tief X (wartet auf Bruch über P2)
+                c.corr = sw                                        # Korrekturextrem (Struktur, D1)
+            if sw.idx > s.p3.idx:
+                s.p3 = Point(sw.price, sw.idx)                     # ENT-114: letztes bestätigtes Korrekturtief ist sofort die Bruchlinie
         elif sw.kind == corr_kind and c.corr_from is not None and c.corr_from < sw.idx < s.p2.idx \
-                and (s.p3.idx <= c.corr_from or better(sw.price, s.p3.price)):
-            s.p3 = Point(sw.price, sw.idx)                         # nachträglich bestätigt: tiefstes Tief der Korrektur (ENT-099)
+                and sw.idx > s.p3.idx:
+            s.p3 = Point(sw.price, sw.idx)                         # nachträglich bestätigt (ENT-099/114): spätestes Tief der Korrektur
             _s_push(c, peak_kind, c.corr_from, c.corr_from_p)     # alter P2 als Strukturpunkt, falls noch nicht
             _s_replace_last(c, corr_kind, sw.idx, sw.price)
         elif sw.kind == peak_kind and sw.idx > s.p2.idx and \

@@ -31,21 +31,21 @@ def test_skizze_D1_bruch_nach_tieferem_hoch_ist_rot():          # ENT-039/040 (D
     assert round(s.p1.price, 1) == 60.2 and round(s.p3.price, 1) == 52.2
 
 
-def test_skizze_A_bruchlinie_bleibt_alter_p3():                   # ENT-095 (Buch S. 128/139), löst ENT-038 ab
+def test_ent114_bruchlinie_ist_letztes_korrekturtief():          # ENT-114 (Agena), löst ENT-095 ab
     states = run([10, 40, 25, 60, 40, 52, 45, 50, 38])
     s = states[-1]
-    # unter Tief X (39.8), aber über altem P3 (24.8): Trend intakt
-    assert s.state == UP and round(s.p3.price, 1) == 24.8
-
-
-def test_skizze_A_tief_x_wird_p3_erst_ueber_p2():                 # ENT-095
-    s = run([10, 40, 25, 60, 40, 52, 45, 70])[-1]
-    assert s.state == UP and round(s.p3.price, 1) == 39.8 and round(s.p2.price, 1) == 70.2
-
-
-def test_skizze_A_bruch_alter_p3_nach_tieferem_hoch_ist_rot():   # ENT-039/040 mit ENT-095
-    s = run([10, 40, 25, 60, 40, 52, 45, 50, 20])[-1]
+    # Bruch unter das letzte bestätigte Tief 45 nach tieferem Hoch: direkt rot (D1)
     assert s.state == DOWN and round(s.p1.price, 1) == 60.2 and round(s.p3.price, 1) == 50.2
+
+
+def test_ent114_p3_wandert_mit_jedem_tief():                     # ENT-114
+    s = run([10, 40, 25, 60, 40, 52, 45, 70])[-1]
+    assert s.state == UP and round(s.p3.price, 1) == 44.8 and round(s.p2.price, 1) == 70.2
+
+
+def test_skizze_A_bruch_nach_tieferem_hoch_ist_rot():            # ENT-039/040 mit ENT-114
+    s = run([10, 40, 25, 60, 40, 52, 45, 50, 20])[-1]
+    assert s.state == DOWN and round(s.p1.price, 1) == 60.2 and round(s.p3.price, 1) == 52.2
 
 
 def test_gleiches_tief_bricht_nicht():                          # ENT-037, Buch B-05
@@ -164,14 +164,17 @@ def struct(path):
     return [(p.kind, round(p.price)) for p in run_trend_struct(bars, candle_swings(bars, T), T)[1]]
 
 
-def test_ent102_korrektur_innere_schwankungen_nicht_in_struktur():
-    # Korrektur 60 -> 45 -> 55 -> 35 -> 50 -> 30, dann Bruch über 60: nur P2 (60) und P3 (30) sind Punkte
-    assert struct([10, 40, 25, 60, 45, 55, 35, 50, 30, 70]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 30)]
+def test_ent114_tiefe_korrektur_wird_eigener_trend():
+    # 60 -> 45 -> 55 -> 35: Bruch unter 45 nach tieferem Hoch 55 = rot (D1); 30 neuer P2; 70 bricht P3 50 -> blau
+    b = bars_from_path([10, 40, 25, 60, 45, 55, 35, 50, 30, 70])
+    st = run_trend(b, candle_swings(b, T), T)
+    assert DOWN in [x.state for x in st] and st[-1].state == NONE
+    assert struct([10, 40, 25, 60, 45, 55, 35, 50, 30, 70]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 45), ("H", 55), ("L", 35), ("H", 50), ("L", 30)]
 
 
 def test_ent102_struktur_beim_d1_wechsel():
     # rot mit P1 60, Tief dazwischen 40, P3 50; das Bewegungstief 20 läuft noch (kein Strukturpunkt)
-    assert struct([10, 40, 25, 60, 40, 52, 45, 50, 20]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 40), ("H", 50)]
+    assert struct([10, 40, 25, 60, 40, 52, 45, 50, 20]) == [("L", 10), ("H", 40), ("L", 25), ("H", 60), ("L", 40), ("H", 52)]
 
 
 def test_ent102_struktur_blau_und_ent079():
