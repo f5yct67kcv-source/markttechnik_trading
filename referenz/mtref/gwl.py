@@ -245,3 +245,58 @@ def domino(bars: list[Bar], sig_states, tick: float) -> list[Swing]:
                 lo = bar
         prev = state
     return out
+
+
+def htf_swings_growing(bars: list[Bar], groups: list[list[Bar]], tick: float) -> list[Swing]:
+    """Kerzenregel auf **wachsenden** Kerzen der höheren Zeiteinheit (ENT-120), 1:1 wie Pine (Finder.step).
+
+    Jede Chart-Kerze aktualisiert Hoch/Tief der laufenden höheren Kerze; die Regel wird bei jeder
+    Chart-Kerze geprüft. So bleibt die echte Reihenfolge von Hoch und Tief in Aussenstäben erhalten
+    (z. B. NQ 21.10. 15:40: Tief 29771 vor Hoch 29917,5)."""
+    gid_of = {}
+    for gi, g in enumerate(groups):
+        for b in g:
+            gid_of[b.idx] = gi
+    out: list[Swing] = []
+    init = False
+    d = 0
+    hiP = hiLow = loP = loHigh = 0.0
+    hiBar = hiGrp = loBar = loGrp = 0
+    gH = gL = None
+    gHb = gLb = 0
+    cur = -1
+    for b in bars:
+        gid = gid_of[b.idx]
+        if gid != cur:
+            cur, gH, gL, gHb, gLb = gid, b.high, b.low, b.idx, b.idx
+        else:
+            if b.high > gH:
+                gH, gHb = b.high, b.idx
+            if b.low < gL:
+                gL, gLb = b.low, b.idx
+        hf = (b.high - b.open) <= (b.open - b.low)
+        if not init:
+            init = True
+            hiP, hiLow, hiBar, hiGrp = gH, gL, gHb, gid
+            loP, loHigh, loBar, loGrp = gL, gH, gLb, gid
+            continue
+        if hiGrp == gid:
+            hiLow = gL
+        if loGrp == gid:
+            loHigh = gH
+        for isH in ((True, False) if hf else (False, True)):
+            if isH:
+                if d != -1 and gH > hiP:
+                    hiP, hiLow, hiBar, hiGrp = gH, gL, gHb, gid
+                if d != 1 and gid > loGrp and gH >= loHigh + tick:
+                    out.append(Swing("L", loBar, loP, b.idx))
+                    d = 1
+                    hiP, hiLow, hiBar, hiGrp = gH, gL, gHb, gid
+            else:
+                if d != 1 and gL < loP:
+                    loP, loHigh, loBar, loGrp = gL, gH, gLb, gid
+                if d != -1 and gid > hiGrp and gL <= hiLow - tick:
+                    out.append(Swing("H", hiBar, hiP, b.idx))
+                    d = -1
+                    loP, loHigh, loBar, loGrp = gL, gH, gLb, gid
+    return out

@@ -1,14 +1,14 @@
 //@version=6
 // Markttechnik – GWL + Signallage (Prototyp Phase 1)
 // 1:1-Port der Python-Referenz in referenz/mtref (ENT-031). Regeln: siehe ENTSCHEIDE.md.
-indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v112", overlay = true,
+indicator("Markttechnik GWL + Signallage (Prototyp)", "MT GWL v113", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ───────────────────────────── Einstellungen
 grpT = "Trend"
-i_method   = input.string("Domino (Buch Z-06)", "GWL-Methode (ENT-104/116)", options = ["Domino (Buch Z-06)", "Variante C (Kerzenregel höhere Zeiteinheit)"], group = grpT)
+i_method   = input.string("Variante C (Kerzenregel höhere Zeiteinheit)", "GWL-Methode (ENT-120)", options = ["Variante C (Kerzenregel höhere Zeiteinheit)", "Domino (Buch Z-06)"], group = grpT)
 i_tf       = input.timeframe("", "GWL-Zeiteinheit (leer = automatisch, ENT-085)", group = grpT)
-i_thr      = input.float(38.2, "Tiefenfilter GWL in % (ENT-084)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
+i_thr      = input.float(0, "Tiefenfilter GWL in % (ENT-120, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
 i_thrSig   = input.float(0, "Tiefenfilter Signallage in % (ENT-101/116, 0 = aus)", minval = 0, maxval = 100, step = 0.1, group = grpT) / 100
 i_tick     = input.float(0, "Tick-Grösse für die Regeln (0 = Symbol; CFD: z. B. US30 1, NQ 0.25, CL 0.01) (ENT-115)", minval = 0, step = 0.01, group = grpT)
 i_showSig  = input.bool(true, "Signallage anzeigen (fein)", group = grpT)
@@ -565,9 +565,12 @@ if DOMINO
 else
     array<Swing> gwlRaw = gwlF.step(gH, gL, gHbar, gLbar, gid, hf)
     for r in gwlRaw
-        array<Swing> f = cand.gwlFeed(r, i_thr)
-        for x in f
-            gwlNew.push(x)
+        if i_thr <= 0
+            gwlNew.push(r)
+        else
+            array<Swing> f = cand.gwlFeed(r, i_thr)
+            for x in f
+                gwlNew.push(x)
 
 gwlT.runBar(gwlNew, hf)
 

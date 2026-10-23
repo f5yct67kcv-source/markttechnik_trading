@@ -30,3 +30,12 @@ def test_02_mnq_1m_gwl_aus_10min():                                      # ENT-0
     assert p == [30682.0, 30814.5, 30760.75, 30795.0, 30764.5, 30814.25, 30766.5, 30792.25, 30767.25,
                  30813.75, 30789.0, 30905.25, 30863.75, 30903.0, 30870.25, 30905.0, 30837.5, 30963.0,
                  30900.0, 30942.5, 30911.25, 30998.5]
+
+
+def test_ent120_wachsende_kerze_haelt_aussenstab_reihenfolge():
+    """NQ 21.10. 15:40: Aussenstab mit Tief 29771 (15:43) vor Hoch 29917,5 (15:49). Agena zeigt das Tief 29771."""
+    from mtref.gwl import htf_swings_growing
+    b = load_tradingview_csv(os.path.join(D, "nq_1m_bis_2026-10-23.csv"))
+    p = [(x.kind, x.price) for x in htf_swings_growing(b, groups_min(b, 10), 0.25)
+         if "2026-10-21 15:00" <= b[x.idx].time <= "2026-10-21 16:30"]
+    assert ("L", 29771.0) in p and ("H", 29913.25) in p and ("H", 29934.25) in p
